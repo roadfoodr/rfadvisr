@@ -105,17 +105,18 @@ def mark_addresses(content):
     - Two or more consecutive capital letters (allowing punctuation between) followed by whitespace, or
     - |URL end| marker
     Then captures everything from:
-    - First number encountered (e.g., street number, route number)
+    - First number encountered (e.g., street number, route number), but not if preceded by "US "
     - Through all subsequent text (including additional numbers, street names, etc.)
     - Until reaching ", XX" where XX is state abbreviation
-    - Including any optional parenthetical content before the state abbreviation
+    - Including any optional parenthetical content after the state
     
     Examples:
     "MIKE'S KITCHEN 170 Randall St. (at Tabor-Franchi VFW Post 239) Cranston, RI"
     "SUGAR'S 1799 State Rd. 68 Embudo, NM"
     "CHOPE'S 16145 S. Hwy. 28 La Mesa, NM"
+    Will not match: "along US 17, SC"
     """
-    address_pattern = r'((?:\|URL end\||[A-Z][^a-z\s]*[A-Z][^a-z\s]*[A-Z\s]*?))\s*(\d+[^|]*?,\s(?:' + states + r')(?:\s*\([^)]+\))?)'
+    address_pattern = r'((?:\|URL end\||[A-Z][^a-z\s]*[A-Z][^a-z\s]*[A-Z\s]*?))\s*(?<!US\s)(\d+[^|]*?,\s(?:' + states + r')(?:\s*\([^)]+\))?)'
 
     def format_address(match):
         prefix, address = match.groups()
