@@ -75,15 +75,33 @@ def is_restaurant_title(line):
             
     return False
 
+def extract_title_portion(line):
+    """Extract the ALL CAPS portion from the start of the line"""
+    words = line.split()
+    title_words = []
+    
+    for word in words:
+        # Remove all punctuation for the uppercase check
+        cleaned_word = ''.join(c for c in word if c.isalpha())
+        # Skip empty strings after cleaning
+        if not cleaned_word:
+            continue
+        # Stop when we hit a word that's not all caps
+        if not cleaned_word.isupper():
+            break
+        title_words.append(word)  # Keep original word with punctuation
+    
+    return ' '.join(title_words)
+
 def is_similar_to_current(text, current_title):
     if not current_title:
         return False
-        
-    # Convert both to uppercase and remove punctuation for comparison
+    
+    # Convert both to uppercase and remove ALL punctuation and spaces for comparison
     text = ''.join(c for c in text.upper() if c.isalnum())
     current = ''.join(c for c in current_title.upper() if c.isalnum())
     
-    # Check if one starts with the other
+    # Check if one starts with the other (to catch partial matches)
     return text.startswith(current) or current.startswith(text)
 
 def normalize_quotes(text):
