@@ -41,25 +41,36 @@ def mark_addresses(content):
     2. Remove internal linebreaks (replace with space)
     3. Ensure one linebreak after address
     4. Add start and end markers
+    Only match addresses that are preceded by either:
+    - Two or more consecutive capital letters (ignoring punctuation)
+    - A |URL end| marker (which should be preserved)
     """
     states = '|'.join(STATE_ABBREVS)
     
     """
-    Pattern matches:
+    Pattern matches either:
+    - Two or more consecutive capital letters (allowing punctuation between) followed by whitespace, or
+    - |URL end| marker
+    Then followed by:
     - Numbers followed by whitespace
     - Then alphanumeric text (including possible linebreak)
     - Ending with ", XX" where XX is state abbreviation
-    Updated pattern to include parenthetical content
-    Updated pattern to include Route/Rte. as optional prefix
+    - Optional parenthetical content
+    - Route/Rte. as optional prefix
+
     """
-    address_pattern = r'((?:Route |Rte\. )?\d+\s[A-Za-z0-9\s.,\'"-()]+?,\s(?:' + states + r'))'
+    address_pattern = r'((?:[A-Z][^a-z\s]*[A-Z][^a-z\s]*[A-Z\s].*?\s+|\|URL end\|\s+))((?:Route |Rte\. )?\d+\s[A-Za-z0-9\s.,\'"-()]+?,\s(?:' + states + r'))'
     
     def format_address(match):
-        address = match.group(1)
+        prefix, address = match.groups()
         # Replace any internal linebreaks with space
         address = ' '.join(address.split())
         # Add start and end markers and ensure one linebreak before and after
-        return f'\n|address start| {address} |address end|\n'
+        # If prefix is a URL end tag, preserve it
+        if '|URL end|' in prefix:
+            return f'{prefix}\n|address start| {address} |address end|\n'
+        # Otherwise, preserve the capital letters prefix
+        return f'{prefix}\n|address start| {address} |address end|\n'
     
     # Replace addresses with formatted versions
     content = re.sub(address_pattern, format_address, content)
@@ -240,9 +251,9 @@ def main():
         processed_content = left_trim_lines(processed_content)
         processed_content = remove_standalone_states(processed_content)
         processed_content = left_trim_lines(processed_content)
-        processed_content = mark_addresses(processed_content)
-        processed_content = left_trim_lines(processed_content)
         processed_content = mark_urls(processed_content)
+        processed_content = left_trim_lines(processed_content)
+        processed_content = mark_addresses(processed_content)
         processed_content = left_trim_lines(processed_content)
         processed_content = mark_phones(processed_content)
         processed_content = left_trim_lines(processed_content)
