@@ -284,6 +284,41 @@ def mark_phones(content):
     processed_lines = [re.sub(phone_pattern, format_phone, line) for line in lines]
     return '\n'.join(processed_lines)
 
+def mark_hours(content):
+    """
+    Find hours and add markers around them.
+    Hours are either:
+    - Start with one of the HOURS_PATTERNS and end with 1-3 $ characters
+    - Start with "(limited" or similar text and end with 1-3 $ characters
+    - Just 1-3 $ characters on a line by themselves
+    Must be at start of line
+    """
+    # Create pattern that matches any of the hours patterns
+    hours_prefix = '|'.join(map(re.escape, HOURS_PATTERNS))
+    
+    # Pattern matches either:
+    # 1. Hours pattern followed by text and $ signs
+    # 2. Parenthetical text followed by $ signs
+    # 3. Just $ signs
+    hours_pattern = rf'^(\s*(?:(?:{hours_prefix})|(?:\([^)]+\))|(?:\s*)).*?[|]?\s*\${{1,3}})'
+    
+    def format_hours(match):
+        hours = match.group(1).strip()
+        print(f"Matched hours: {hours}")  # Debug print
+        return f'|hours start| {hours} |hours end|\n'
+    
+    # Process line by line and print first 5 potential hours lines
+    lines = content.split('\n')
+    debug_count = 0
+    for line in lines:
+        if any(line.startswith(pattern) for pattern in HOURS_PATTERNS) or line.strip() in ['$', '$$', '$$$']:
+            if debug_count < 5:
+                print(f"Processing potential hours line: {line}")  # Debug print
+                debug_count += 1
+    
+    processed_lines = [re.sub(hours_pattern, format_hours, line) for line in lines]
+    return '\n'.join(processed_lines)
+
 def main():
     content = read_text_file(INPUT_FILE)
     
@@ -297,6 +332,8 @@ def main():
         processed_content = mark_urls(processed_content)
         processed_content = left_trim_lines(processed_content)
         processed_content = mark_phones(processed_content)
+        processed_content = left_trim_lines(processed_content)
+        processed_content = mark_hours(processed_content)
         processed_content = left_trim_lines(processed_content)
         
         os.makedirs(os.path.dirname(PROCESSED_OUTPUT_FILE), exist_ok=True)
