@@ -35,6 +35,55 @@ STATE_ABBREVS = {
     'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
 }
 
+def read_text_file(filepath):
+    try:
+        with open(filepath, 'r', encoding='utf-8') as file:
+            content = file.read()
+        return content
+    except FileNotFoundError:
+        print(f"Error: File not found at {filepath}")
+        return None
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        return None
+
+def left_trim_lines(content):
+    """Left trim all lines in the content while preserving empty lines"""
+    return '\n'.join(line.lstrip() for line in content.split('\n'))
+
+def normalize_quotes(text):
+    """Replace curly quotes with straight quotes"""
+    # Replace curly single quotes with straight single quote
+    text = text.replace('\u2018', "'").replace('\u2019', "'")  # Left and right single quotes
+    # Replace curly double quotes with straight double quote
+    text = text.replace('\u201c', '"').replace('\u201d', '"')  # Left and right double quotes
+    return text
+
+def remove_standalone_states(content):
+    """Remove lines that consist only of a US state name"""
+    lines = content.split('\n')
+    filtered_lines = [line for line in lines if line.strip() not in US_STATES]
+    return '\n'.join(filtered_lines)
+
+def remove_question_mark_prefix(content):
+    """
+    Remove "? " prefix when followed by capital letters.
+    Pattern:
+    - Start of line
+    - Literal "? "
+    - One or more consecutive capital letters (ignoring punctuation)
+    """
+    # Pattern matches:
+    # ^ - start of line
+    # \? \s* - question mark followed by optional whitespace
+    # (?=[A-Z]) - positive lookahead for capital letter
+    pattern = r'^\?\s*(?=[A-Z])'
+    
+    # Process line by line to ensure we only match at start of lines
+    lines = content.split('\n')
+    processed_lines = [re.sub(pattern, '', line) for line in lines]
+    return '\n'.join(processed_lines)
+
 def mark_addresses(content):
     """
     Find addresses and normalize their formatting:
@@ -86,7 +135,7 @@ def mark_urls(content):
     """
     Find URLs and add markers around them.
     URLs are defined as 2-40 characters with no spaces followed by .com/.biz/.org/.net
-    Can have optional trailing slash (which will be removed)
+    Can have optional trailing slash
     Must be on their own line
     """
     # Pattern matches:
@@ -94,44 +143,21 @@ def mark_urls(content):
     # \s* - optional whitespace
     # [^\s]{2,40} - 2-40 non-whitespace characters
     # \.(com|biz|org|net) - literal ".com" or ".biz" or ".org" or ".net"
-    # /? - optional trailing slash
+    # /?  - optional trailing slash
     # \s*$ - optional whitespace and end of line
     url_pattern = r'^(\s*[^\s]{2,40}\.(com|biz|org|net)/?)\s*$'
     
     def format_url(match):
         url = match.group(1).strip()
         # Remove trailing slash if present
-        url = url.rstrip('/')
+        if url.endswith('/'):
+            url = url.rstrip('/')
         return f'|URL start| {url} |URL end|\n'
     
     # Process line by line to ensure we only match full lines
     lines = content.split('\n')
     processed_lines = [re.sub(url_pattern, format_url, line) for line in lines]
     return '\n'.join(processed_lines)
-
-def left_trim_lines(content):
-    """Left trim all lines in the content while preserving empty lines"""
-    return '\n'.join(line.lstrip() for line in content.split('\n'))
-
-def read_text_file(filepath):
-    try:
-        with open(filepath, 'r', encoding='utf-8') as file:
-            content = file.read()
-        return content
-    except FileNotFoundError:
-        print(f"Error: File not found at {filepath}")
-        return None
-    except Exception as e:
-        print(f"Error reading file: {e}")
-        return None
-
-def normalize_quotes(text):
-    """Replace curly quotes with straight quotes"""
-    # Replace curly single quotes with straight single quote
-    text = text.replace('\u2018', "'").replace('\u2019', "'")  # Left and right single quotes
-    # Replace curly double quotes with straight double quote
-    text = text.replace('\u201c', '"').replace('\u201d', '"')  # Left and right double quotes
-    return text
 
 def is_restaurant_title(line):
     # Skip empty lines
@@ -173,15 +199,6 @@ def is_restaurant_title(line):
             consecutive_caps = 0
             
     return False
-
-def find_all_addresses(content):
-    """Extract all addresses from content using the address markers"""
-    # Pattern matches anything between |address start| and |address end| markers
-    address_pattern = r'\|address start\|\s*(.*?)\s*\|address end\|'
-    
-    # Find all matches
-    addresses = re.findall(address_pattern, content)
-    return addresses
 
 def mark_phones(content):
     """
@@ -234,12 +251,6 @@ def mark_hours(content):
     lines = content.split('\n')
     processed_lines = [re.sub(hours_pattern, format_hours, line) for line in lines]
     return '\n'.join(processed_lines)
-
-def remove_standalone_states(content):
-    """Remove lines that consist only of a US state name"""
-    lines = content.split('\n')
-    filtered_lines = [line for line in lines if line.strip() not in US_STATES]
-    return '\n'.join(filtered_lines)
 
 def mark_titles(content):
     """
@@ -296,24 +307,14 @@ def find_all_titles(content):
     titles = re.findall(title_pattern, content)
     return titles
 
-def remove_question_mark_prefix(content):
-    """
-    Remove "? " prefix when followed by capital letters.
-    Pattern:
-    - Start of line
-    - Literal "? "
-    - One or more consecutive capital letters (ignoring punctuation)
-    """
-    # Pattern matches:
-    # ^ - start of line
-    # \? \s* - question mark followed by optional whitespace
-    # (?=[A-Z]) - positive lookahead for capital letter
-    pattern = r'^\?\s*(?=[A-Z])'
+def find_all_addresses(content):
+    """Extract all addresses from content using the address markers"""
+    # Pattern matches anything between |address start| and |address end| markers
+    address_pattern = r'\|address start\|\s*(.*?)\s*\|address end\|'
     
-    # Process line by line to ensure we only match at start of lines
-    lines = content.split('\n')
-    processed_lines = [re.sub(pattern, '', line) for line in lines]
-    return '\n'.join(processed_lines)
+    # Find all matches
+    addresses = re.findall(address_pattern, content)
+    return addresses
 
 def main():
     content = read_text_file(INPUT_FILE)
