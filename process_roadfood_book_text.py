@@ -8,6 +8,7 @@ DATA_DIR = "data"
 INPUT_FILE = os.path.join(DATA_DIR, "Roadfood_ 10th_edition_simplified.txt")
 OUTPUT_FILE = os.path.join(DATA_DIR, "restaurant_titles.csv")
 OUTPUT_ADDRESSES_FILE = os.path.join(DATA_DIR, "addresses.csv")
+OUTPUT_URLS_FILE = os.path.join(DATA_DIR, "urls.csv")
 PROCESSED_OUTPUT_FILE = os.path.join(DATA_DIR, "processed_roadfood.txt")
 
 SKIP_TITLES = {'B.J.'}  # Strings that should never be considered titles
@@ -34,6 +35,8 @@ STATE_ABBREVS = {
     'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
     'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
 }
+
+ALWAYS_URLS = {'cornelldairybar.cfm'}  # Strings that should always be considered part of URLs
 
 def read_text_file(filepath):
     try:
@@ -134,29 +137,43 @@ def mark_addresses(content):
 def mark_urls(content):
     """
     Find URLs and add markers around them.
-    URLs are defined as 2-40 characters with no spaces followed by .com/.biz/.org/.net
-    Can have optional trailing slash
+    URLs are defined as:
+    - 2-40 characters with no spaces
+    - Followed by .com/.biz/.org/.net/.edu
+    - Optionally followed by:
+        - A slash
+        - Additional alphanumeric characters, dashes, dots, underscores, hash
+        - Common file extensions (htm, html, aspx)
     Must be on their own line
+    Special case: Any line containing a string from ALWAYS_URLS is treated as a URL
     """
     # Pattern matches:
     # ^ - start of line
     # \s* - optional whitespace
     # [^\s]{2,40} - 2-40 non-whitespace characters
-    # \.(com|biz|org|net) - literal ".com" or ".biz" or ".org" or ".net"
-    # /?  - optional trailing slash
+    # \.(com|biz|org|net|edu) - literal ".com" or ".biz" or ".org" or ".net" or ".edu"
+    # (?:/[\w\-._#]+(?:\.(?:htm|html|aspx))?)*/?  - optional path segments with optional trailing slash
     # \s*$ - optional whitespace and end of line
-    url_pattern = r'^(\s*[^\s]{2,40}\.(com|biz|org|net)/?)\s*$'
+    url_pattern = r'^(\s*[^\s]{2,40}\.(com|biz|org|net|edu)(?:/[\w\-._#]+(?:\.(?:htm|html|aspx))?)*/?)\s*$'
     
     def format_url(match):
         url = match.group(1).strip()
-        # Remove trailing slash if present
         if url.endswith('/'):
             url = url.rstrip('/')
         return f'|URL start| {url} |URL end|\n'
     
-    # Process line by line to ensure we only match full lines
+    # Process line by line
     lines = content.split('\n')
-    processed_lines = [re.sub(url_pattern, format_url, line) for line in lines]
+    processed_lines = []
+    for line in lines:
+        # Special case for ALWAYS_URLS
+        if any(always_url in line for always_url in ALWAYS_URLS):
+            stripped_line = line.strip()
+            processed_lines.append(f'|URL start| {stripped_line} |URL end|\n')
+            continue
+        # Normal URL processing
+        processed_lines.append(re.sub(url_pattern, format_url, line))
+    
     return '\n'.join(processed_lines)
 
 def is_restaurant_title(line):
@@ -316,6 +333,15 @@ def find_all_addresses(content):
     addresses = re.findall(address_pattern, content)
     return addresses
 
+def find_all_urls(content):
+    """Extract all URLs from content using the URL markers"""
+    # Pattern matches anything between |URL start| and |URL end| markers
+    url_pattern = r'\|URL start\|\s*(.*?)\s*\|URL end\|'
+    
+    # Find all matches
+    urls = re.findall(url_pattern, content)
+    return urls
+
 def main():
     content = read_text_file(INPUT_FILE)
     
@@ -345,6 +371,12 @@ def main():
             f.write(processed_content)
         print(f"\nProcessed content saved to {PROCESSED_OUTPUT_FILE}")
         
+        # Find and save URLs
+        urls = find_all_urls(processed_content)
+        df_urls = pd.DataFrame(urls, columns=['url'])
+        df_urls.to_csv(OUTPUT_URLS_FILE, index=False)
+        print(f"\nFound {len(urls)} URLs.")
+
         # Find and save addresses
         addresses = find_all_addresses(processed_content)
         df_addresses = pd.DataFrame(addresses, columns=['address'])
