@@ -1,11 +1,14 @@
 import csv
 import pandas as pd
 import os
+import re
 
 # Constants
 DATA_DIR = "data"
 INPUT_FILE = os.path.join(DATA_DIR, "Roadfood_ 10th_edition_simplified.txt")
 OUTPUT_FILE = os.path.join(DATA_DIR, "restaurant_titles.csv")
+OUTPUT_ADDRESSES_FILE = os.path.join(DATA_DIR, "addresses.csv")
+PROCESSED_OUTPUT_FILE = os.path.join(DATA_DIR, "processed_roadfood.txt")
 
 SKIP_TITLES = {'B.J.'}  # Strings that should never be considered titles
 ALWAYS_TITLES = {'NICK\'S FAMOUS ROAST BEEF'}  # Strings that are always titles
@@ -21,10 +24,57 @@ US_STATES = {
     'WISCONSIN', 'WYOMING'
 }
 
+# Add after other constants, before functions
+STATE_ABBREVS = {
+    'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+    'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+    'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+    'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+    'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
+}
+
+def normalize_address_formatting(content):
+    """
+    Find addresses and normalize their formatting:
+    1. Ensure one linebreak before address
+    2. Remove internal linebreaks (replace with space)
+    3. Ensure one linebreak after address
+    4. Add start and end markers
+    """
+    states = '|'.join(STATE_ABBREVS)
+    
+    """
+    # Pattern matches:
+    # - Numbers followed by whitespace
+    # - Then alphanumeric text (including possible linebreak)
+    # - Ending with ", XX" where XX is state abbreviation
+    # Updated pattern to include parenthetical content
+    # Updated pattern to include Route/Rte. as optional prefix
+    """
+    address_pattern = r'((?:Route |Rte\. )?\d+\s[A-Za-z0-9\s.,\'"-()]+?,\s(?:' + states + r'))'
+    
+    def format_address(match):
+        address = match.group(1)
+        # Replace any internal linebreaks with space
+        address = ' '.join(address.split())
+        # Add start and end markers and ensure one linebreak before and after
+        return f'\n|address start| {address} |address end|\n'
+    
+    # Replace addresses with formatted versions
+    content = re.sub(address_pattern, format_address, content)
+    
+    # Clean up any duplicate markers and their associated linebreaks/spaces
+    content = re.sub(r'\|address start\|\s+\|address start\|', '|address start|', content)
+    content = re.sub(r'\|address end\|\s+\|address end\|', '|address end|', content)
+    
+    return content
+
 def read_text_file(filepath):
     try:
         with open(filepath, 'r', encoding='utf-8') as file:
             content = file.read()
+            # Add address formatting step
+            content = normalize_address_formatting(content)
         return content
     except FileNotFoundError:
         print(f"Error: File not found at {filepath}")
@@ -75,35 +125,6 @@ def is_restaurant_title(line):
             
     return False
 
-def extract_title_portion(line):
-    """Extract the ALL CAPS portion from the start of the line"""
-    words = line.split()
-    title_words = []
-    
-    for word in words:
-        # Remove all punctuation for the uppercase check
-        cleaned_word = ''.join(c for c in word if c.isalpha())
-        # Skip empty strings after cleaning
-        if not cleaned_word:
-            continue
-        # Stop when we hit a word that's not all caps
-        if not cleaned_word.isupper():
-            break
-        title_words.append(word)  # Keep original word with punctuation
-    
-    return ' '.join(title_words)
-
-def is_similar_to_current(text, current_title):
-    if not current_title:
-        return False
-    
-    # Convert both to uppercase and remove ALL punctuation and spaces for comparison
-    text = ''.join(c for c in text.upper() if c.isalnum())
-    current = ''.join(c for c in current_title.upper() if c.isalnum())
-    
-    # Check if one starts with the other (to catch partial matches)
-    return text.startswith(current) or current.startswith(text)
-
 def normalize_quotes(text):
     """Replace curly quotes with straight quotes"""
     # Replace curly single quotes with straight single quote
@@ -112,51 +133,78 @@ def normalize_quotes(text):
     text = text.replace('\u201c', '"').replace('\u201d', '"')  # Left and right double quotes
     return text
 
+def extract_address(lines, start_idx):
+    """
+    Extract address from lines starting at start_idx.
+    Returns tuple of (address, lines_consumed) or (None, 0) if no address found.
+    """
+    # Check if address is on current line after double space
+    current_line = lines[start_idx].strip()
+    parts = current_line.split('  ', 1)
+    if len(parts) > 1:
+        addr = parts[1].strip()
+        # Check if this part ends with a state abbreviation
+        if any(addr.endswith(f", {state[:2]}") for state in US_STATES):
+            return addr, 0
+
+    # Look at next line(s)
+    address_parts = []
+    lines_consumed = 0
+    
+    for i in range(1, 3):  # Look up to 2 lines ahead
+        if start_idx + i >= len(lines):
+            break
+            
+        next_line = lines[start_idx + i].strip()
+        # Skip empty lines
+        if not next_line:
+            continue
+            
+        # Check if line ends with state abbreviation
+        if any(next_line.endswith(f", {state[:2]}") for state in US_STATES):
+            address_parts.append(next_line)
+            lines_consumed = i
+            break
+            
+    if address_parts:
+        return " ".join(address_parts), lines_consumed
+    
+    return None, 0
+
 def find_restaurant_entries(content):
     # Normalize quotes in the entire content first
     content = normalize_quotes(content)
-    
     entries = []
     lines = content.split('\n')
     
-    # First pass - remove state names and clean lines
-    cleaned_lines = []
-    for i, line in enumerate(lines):
-        line = line.strip()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
         if line.startswith("? "):
-            line = line[2:]  # Remove the "? " prefix
-            
-        # Skip state names entirely
+            line = line[2:]
+        
+        # Skip state names
         if line in US_STATES:
-            # print(f"Removing state name at line {i+1}: {line}")
+            i += 1
             continue
             
-        cleaned_lines.append((line, i+1))
-    
-    # Second pass - find restaurant titles
-    current_title = None
-    for line, line_num in cleaned_lines:
         if is_restaurant_title(line):
-            # Always accept special cases regardless of similarity
-            if line in ALWAYS_TITLES:
-                current_title = line
-                entries.append({
-                    'title': line,
-                    'line_number': line_num
-                })
-                continue
-                
-            # Skip if similar to current title
-            if is_similar_to_current(line, current_title):
-                print(f"Skipping similar to current title {current_title} at line {line_num}: {line}")
-                continue
-                
-            # Found a new distinct title
-            current_title = line
-            entries.append({
-                'title': line,
-                'line_number': line_num
-            })
+            # Get just the title part (in case address is on same line)
+            title = line.split('  ', 1)[0].strip()
+            
+            # Look for address
+            address, lines_consumed = extract_address(lines, i)
+            
+            entry = {
+                'title': title,
+                'address': address if address else '',
+                'line_number': i + 1
+            }
+            entries.append(entry)
+            
+            # Skip lines consumed by address
+            i += lines_consumed
+        i += 1
     
     return entries
 
@@ -165,11 +213,22 @@ def save_titles_to_csv(entries, output_file):
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
     # Convert entries to pandas DataFrame
-    df = pd.DataFrame([entry['title'] for entry in entries], columns=['Title'])
+    df = pd.DataFrame(entries)
     
     # Save to CSV
     df.to_csv(output_file, index=False)
     return df
+
+def find_all_addresses(content):
+    """Extract all addresses from content using the address pattern"""
+    states = '|'.join(state[:2] for state in US_STATES)
+    address_pattern = rf'(\d+\s[A-Za-z0-9\s.,\'"-]+?,\s(?:{states}))'
+    
+    # Find all matches
+    addresses = re.findall(address_pattern, content)
+    # Clean up addresses (remove internal whitespace)
+    addresses = [' '.join(addr.split()) for addr in addresses]
+    return addresses
 
 def main():
     content = read_text_file(INPUT_FILE)
@@ -177,6 +236,24 @@ def main():
     if content:
         print(f"Successfully read file. Total length: {len(content)} characters")
         
+        # Process the content and save to new file
+        processed_content = normalize_address_formatting(content)
+        os.makedirs(os.path.dirname(PROCESSED_OUTPUT_FILE), exist_ok=True)
+        with open(PROCESSED_OUTPUT_FILE, 'w', encoding='utf-8') as f:
+            f.write(processed_content)
+        print(f"\nProcessed content saved to {PROCESSED_OUTPUT_FILE}")
+        
+        # Find and save addresses
+        addresses = find_all_addresses(content)
+        df_addresses = pd.DataFrame(addresses, columns=['address'])
+        df_addresses.to_csv(OUTPUT_ADDRESSES_FILE, index=False)
+        
+        print(f"\nFound {len(addresses)} addresses.")
+        print("\nFirst 5 addresses found:")
+        for addr in addresses[:5]:
+            print(f"    {addr}")
+        
+        # Continue with existing restaurant entries processing
         entries = find_restaurant_entries(content)
         print(f"\nFound {len(entries)} potential restaurant entries.")
         
@@ -184,10 +261,12 @@ def main():
         print("\nFirst 5 entries found:")
         for entry in entries[:5]:
             print(f"Line {entry['line_number']}: {entry['title']}")
+            if 'address' in entry:
+                print(f"    Address: {entry['address']}")
 
         # Save to CSV using pandas
         df = save_titles_to_csv(entries, OUTPUT_FILE)
-        print(f"\nSaved {len(df)} titles to {OUTPUT_FILE}")
+        print(f"\nSaved {len(df)} entries to {OUTPUT_FILE}")
         print("\nDataFrame head:")
         print(df.head())
     else:
