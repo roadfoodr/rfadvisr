@@ -14,6 +14,10 @@ PROCESSED_OUTPUT_FILE = os.path.join(DATA_DIR, "processed_roadfood.txt")
 SKIP_TITLES = {'B.J.'}  # Strings that should never be considered titles
 ALWAYS_TITLES = {}  # Strings that are always titles
 # ALWAYS_TITLES = {'NICK\'S FAMOUS ROAST BEEF'}  # Strings that are always titles
+ALWAYS_URLS = {'cornelldairybar.cfm'}  # Strings that should always be considered part of URLs
+ALWAYS_ADDRESSES = {
+    ('605 8th Ave. S. Nashville, Tennessee', '605 8th Ave. S. Nashville, TN')  # (input pattern, replacement)
+}
 HOURS_PATTERNS = ["BLD ", "LD ", "BL ", "BD ", "B ", "L ", "D "]  # Meal period indicators
 
 US_STATES = {
@@ -36,7 +40,6 @@ STATE_ABBREVS = {
     'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
 }
 
-ALWAYS_URLS = {'cornelldairybar.cfm'}  # Strings that should always be considered part of URLs
 
 def read_text_file(filepath):
     try:
@@ -90,14 +93,19 @@ def remove_question_mark_prefix(content):
 def mark_addresses(content):
     """
     Find addresses and normalize their formatting:
-    1. Ensure one linebreak before address
-    2. Remove internal linebreaks (replace with space)
-    3. Ensure one linebreak after address
-    4. Add start and end markers
+    1. Check for ALWAYS_ADDRESSES first
+    2. Ensure one linebreak before address
+    3. Remove internal linebreaks (replace with space)
+    4. Ensure one linebreak after address
+    5. Add start and end markers
     Only match addresses that are preceded by either:
     - Two or more consecutive capital letters (ignoring punctuation)
     - A |URL end| marker (which should be preserved)
     """
+    # Handle ALWAYS_ADDRESSES first
+    for pattern, replacement in ALWAYS_ADDRESSES:
+        content = content.replace(pattern, f'\n|address start| {replacement} |address end|\n')
+    
     states = '|'.join(STATE_ABBREVS)
     
     """
