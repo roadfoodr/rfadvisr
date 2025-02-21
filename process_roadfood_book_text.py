@@ -33,7 +33,7 @@ STATE_ABBREVS = {
     'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
 }
 
-def normalize_address_formatting(content):
+def mark_addresses(content):
     """
     Find addresses and normalize their formatting:
     1. Ensure one linebreak before address
@@ -44,12 +44,12 @@ def normalize_address_formatting(content):
     states = '|'.join(STATE_ABBREVS)
     
     """
-    # Pattern matches:
-    # - Numbers followed by whitespace
-    # - Then alphanumeric text (including possible linebreak)
-    # - Ending with ", XX" where XX is state abbreviation
-    # Updated pattern to include parenthetical content
-    # Updated pattern to include Route/Rte. as optional prefix
+    Pattern matches:
+    - Numbers followed by whitespace
+    - Then alphanumeric text (including possible linebreak)
+    - Ending with ", XX" where XX is state abbreviation
+    Updated pattern to include parenthetical content
+    Updated pattern to include Route/Rte. as optional prefix
     """
     address_pattern = r'((?:Route |Rte\. )?\d+\s[A-Za-z0-9\s.,\'"-()]+?,\s(?:' + states + r'))'
     
@@ -69,12 +69,41 @@ def normalize_address_formatting(content):
     
     return content
 
+def mark_urls(content):
+    """
+    Find URLs and add markers around them.
+    URLs are defined as 2-40 characters with no spaces followed by .com/.biz/.org/.net
+    Can have optional trailing slash (which will be removed)
+    Must be on their own line
+    """
+    # Pattern matches:
+    # ^ - start of line
+    # \s* - optional whitespace
+    # [^\s]{2,40} - 2-40 non-whitespace characters
+    # \.(com|biz|org|net) - literal ".com" or ".biz" or ".org" or ".net"
+    # /? - optional trailing slash
+    # \s*$ - optional whitespace and end of line
+    url_pattern = r'^(\s*[^\s]{2,40}\.(com|biz|org|net)/?)\s*$'
+    
+    def format_url(match):
+        url = match.group(1).strip()
+        # Remove trailing slash if present
+        url = url.rstrip('/')
+        return f'|URL start| {url} |URL end|\n'
+    
+    # Process line by line to ensure we only match full lines
+    lines = content.split('\n')
+    processed_lines = [re.sub(url_pattern, format_url, line) for line in lines]
+    return '\n'.join(processed_lines)
+
+def left_trim_lines(content):
+    """Left trim all lines in the content while preserving empty lines"""
+    return '\n'.join(line.lstrip() for line in content.split('\n'))
+
 def read_text_file(filepath):
     try:
         with open(filepath, 'r', encoding='utf-8') as file:
             content = file.read()
-            # Add address formatting step
-            content = normalize_address_formatting(content)
         return content
     except FileNotFoundError:
         print(f"Error: File not found at {filepath}")
@@ -237,7 +266,12 @@ def main():
         print(f"Successfully read file. Total length: {len(content)} characters")
         
         # Process the content and save to new file
-        processed_content = normalize_address_formatting(content)
+        content = left_trim_lines(content)
+        processed_content = mark_addresses(content)
+        processed_content = left_trim_lines(processed_content)
+        processed_content = mark_urls(processed_content)
+        processed_content = left_trim_lines(processed_content)
+        
         os.makedirs(os.path.dirname(PROCESSED_OUTPUT_FILE), exist_ok=True)
         with open(PROCESSED_OUTPUT_FILE, 'w', encoding='utf-8') as f:
             f.write(processed_content)
