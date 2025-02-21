@@ -12,6 +12,7 @@ PROCESSED_OUTPUT_FILE = os.path.join(DATA_DIR, "processed_roadfood.txt")
 
 SKIP_TITLES = {'B.J.'}  # Strings that should never be considered titles
 ALWAYS_TITLES = {'NICK\'S FAMOUS ROAST BEEF'}  # Strings that are always titles
+HOURS_PATTERNS = ["BLD ", "LD ", "BL ", "BD ", "B ", "L ", "D "]  # Meal period indicators
 
 US_STATES = {
     'ALABAMA', 'ALASKA', 'ARIZONA', 'ARKANSAS', 'CALIFORNIA', 'COLORADO', 'CONNECTICUT',
@@ -126,8 +127,7 @@ def is_restaurant_title(line):
         return True
         
     # Skip known non-title patterns
-    skip_patterns = ["BLD ", "LD ", "BL ", "BD ", "B ", "L ", "D "]
-    if any(line.startswith(pattern) for pattern in skip_patterns):
+    if any(line.startswith(pattern) for pattern in HOURS_PATTERNS):
         return False
     
     # Skip if the line is just a state name
@@ -259,6 +259,31 @@ def find_all_addresses(content):
     addresses = [' '.join(addr.split()) for addr in addresses]
     return addresses
 
+def mark_phones(content):
+    """
+    Find phone numbers and add markers around them.
+    Phone numbers are either:
+    - ###-###-#### format
+    - The text "No phone"
+    Must be at start of line (but can have content after)
+    """
+    # Pattern matches:
+    # ^ - start of line
+    # \s* - optional whitespace
+    # Either:
+    #   - \d{3}-\d{3}-\d{4} (###-###-####)
+    #   - No phone
+    phone_pattern = r'^(\s*(?:\d{3}-\d{3}-\d{4}|No phone))'
+    
+    def format_phone(match):
+        phone = match.group(1).strip()
+        return f'|phone start| {phone} |phone end|\n'
+    
+    # Process line by line
+    lines = content.split('\n')
+    processed_lines = [re.sub(phone_pattern, format_phone, line) for line in lines]
+    return '\n'.join(processed_lines)
+
 def main():
     content = read_text_file(INPUT_FILE)
     
@@ -270,6 +295,8 @@ def main():
         processed_content = mark_addresses(content)
         processed_content = left_trim_lines(processed_content)
         processed_content = mark_urls(processed_content)
+        processed_content = left_trim_lines(processed_content)
+        processed_content = mark_phones(processed_content)
         processed_content = left_trim_lines(processed_content)
         
         os.makedirs(os.path.dirname(PROCESSED_OUTPUT_FILE), exist_ok=True)
