@@ -113,6 +113,14 @@ def read_text_file(filepath):
         print(f"Error reading file: {e}")
         return None
 
+def normalize_quotes(text):
+    """Replace curly quotes with straight quotes"""
+    # Replace curly single quotes with straight single quote
+    text = text.replace('\u2018', "'").replace('\u2019', "'")  # Left and right single quotes
+    # Replace curly double quotes with straight double quote
+    text = text.replace('\u201c', '"').replace('\u201d', '"')  # Left and right double quotes
+    return text
+
 def is_restaurant_title(line):
     # Skip empty lines
     if not line.strip():
@@ -154,109 +162,13 @@ def is_restaurant_title(line):
             
     return False
 
-def normalize_quotes(text):
-    """Replace curly quotes with straight quotes"""
-    # Replace curly single quotes with straight single quote
-    text = text.replace('\u2018', "'").replace('\u2019', "'")  # Left and right single quotes
-    # Replace curly double quotes with straight double quote
-    text = text.replace('\u201c', '"').replace('\u201d', '"')  # Left and right double quotes
-    return text
-
-def extract_address(lines, start_idx):
-    """
-    Extract address from lines starting at start_idx.
-    Returns tuple of (address, lines_consumed) or (None, 0) if no address found.
-    """
-    # Check if address is on current line after double space
-    current_line = lines[start_idx].strip()
-    parts = current_line.split('  ', 1)
-    if len(parts) > 1:
-        addr = parts[1].strip()
-        # Check if this part ends with a state abbreviation
-        if any(addr.endswith(f", {state[:2]}") for state in US_STATES):
-            return addr, 0
-
-    # Look at next line(s)
-    address_parts = []
-    lines_consumed = 0
-    
-    for i in range(1, 3):  # Look up to 2 lines ahead
-        if start_idx + i >= len(lines):
-            break
-            
-        next_line = lines[start_idx + i].strip()
-        # Skip empty lines
-        if not next_line:
-            continue
-            
-        # Check if line ends with state abbreviation
-        if any(next_line.endswith(f", {state[:2]}") for state in US_STATES):
-            address_parts.append(next_line)
-            lines_consumed = i
-            break
-            
-    if address_parts:
-        return " ".join(address_parts), lines_consumed
-    
-    return None, 0
-
-def find_restaurant_entries(content):
-    # Normalize quotes in the entire content first
-    content = normalize_quotes(content)
-    entries = []
-    lines = content.split('\n')
-    
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        if line.startswith("? "):
-            line = line[2:]
-        
-        # Skip state names
-        if line in US_STATES:
-            i += 1
-            continue
-            
-        if is_restaurant_title(line):
-            # Get just the title part (in case address is on same line)
-            title = line.split('  ', 1)[0].strip()
-            
-            # Look for address
-            address, lines_consumed = extract_address(lines, i)
-            
-            entry = {
-                'title': title,
-                'address': address if address else '',
-                'line_number': i + 1
-            }
-            entries.append(entry)
-            
-            # Skip lines consumed by address
-            i += lines_consumed
-        i += 1
-    
-    return entries
-
-def save_titles_to_csv(entries, output_file):
-    # Create data directory if it doesn't exist
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    
-    # Convert entries to pandas DataFrame
-    df = pd.DataFrame(entries)
-    
-    # Save to CSV
-    df.to_csv(output_file, index=False)
-    return df
-
 def find_all_addresses(content):
-    """Extract all addresses from content using the address pattern"""
-    states = '|'.join(state[:2] for state in US_STATES)
-    address_pattern = rf'(\d+\s[A-Za-z0-9\s.,\'"-]+?,\s(?:{states}))'
+    """Extract all addresses from content using the address markers"""
+    # Pattern matches anything between |address start| and |address end| markers
+    address_pattern = r'\|address start\|\s*(.*?)\s*\|address end\|'
     
     # Find all matches
     addresses = re.findall(address_pattern, content)
-    # Clean up addresses (remove internal whitespace)
-    addresses = [' '.join(addr.split()) for addr in addresses]
     return addresses
 
 def mark_phones(content):
@@ -304,30 +216,31 @@ def mark_hours(content):
     
     def format_hours(match):
         hours = match.group(1).strip()
-        print(f"Matched hours: {hours}")  # Debug print
         return f'|hours start| {hours} |hours end|\n'
     
-    # Process line by line and print first 5 potential hours lines
+    # Process line by line
     lines = content.split('\n')
-    debug_count = 0
-    for line in lines:
-        if any(line.startswith(pattern) for pattern in HOURS_PATTERNS) or line.strip() in ['$', '$$', '$$$']:
-            if debug_count < 5:
-                print(f"Processing potential hours line: {line}")  # Debug print
-                debug_count += 1
-    
     processed_lines = [re.sub(hours_pattern, format_hours, line) for line in lines]
     return '\n'.join(processed_lines)
+
+def remove_standalone_states(content):
+    """Remove lines that consist only of a US state name"""
+    lines = content.split('\n')
+    filtered_lines = [line for line in lines if line.strip() not in US_STATES]
+    return '\n'.join(filtered_lines)
 
 def main():
     content = read_text_file(INPUT_FILE)
     
     if content:
         print(f"Successfully read file. Total length: {len(content)} characters")
-        
-        # Process the content and save to new file
-        content = left_trim_lines(content)
-        processed_content = mark_addresses(content)
+                
+        # Remove standalone state lines, normalize quotes, and process the content
+        processed_content = normalize_quotes(content)
+        processed_content = left_trim_lines(processed_content)
+        processed_content = remove_standalone_states(processed_content)
+        processed_content = left_trim_lines(processed_content)
+        processed_content = mark_addresses(processed_content)
         processed_content = left_trim_lines(processed_content)
         processed_content = mark_urls(processed_content)
         processed_content = left_trim_lines(processed_content)
@@ -342,31 +255,11 @@ def main():
         print(f"\nProcessed content saved to {PROCESSED_OUTPUT_FILE}")
         
         # Find and save addresses
-        addresses = find_all_addresses(content)
+        addresses = find_all_addresses(processed_content)
         df_addresses = pd.DataFrame(addresses, columns=['address'])
         df_addresses.to_csv(OUTPUT_ADDRESSES_FILE, index=False)
         
         print(f"\nFound {len(addresses)} addresses.")
-        print("\nFirst 5 addresses found:")
-        for addr in addresses[:5]:
-            print(f"    {addr}")
-        
-        # Continue with existing restaurant entries processing
-        entries = find_restaurant_entries(content)
-        print(f"\nFound {len(entries)} potential restaurant entries.")
-        
-        # Print first 5 entries as sample
-        print("\nFirst 5 entries found:")
-        for entry in entries[:5]:
-            print(f"Line {entry['line_number']}: {entry['title']}")
-            if 'address' in entry:
-                print(f"    Address: {entry['address']}")
-
-        # Save to CSV using pandas
-        df = save_titles_to_csv(entries, OUTPUT_FILE)
-        print(f"\nSaved {len(df)} entries to {OUTPUT_FILE}")
-        print("\nDataFrame head:")
-        print(df.head())
     else:
         print("Failed to read file")
 
