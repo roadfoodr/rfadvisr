@@ -104,16 +104,19 @@ def mark_addresses(content):
     Pattern matches either:
     - Two or more consecutive capital letters (allowing punctuation between) followed by whitespace, or
     - |URL end| marker
-    Then followed by:
-    - Numbers followed by whitespace
-    - Then alphanumeric text (including possible linebreak)
-    - Ending with ", XX" where XX is state abbreviation
-    - Optional parenthetical content
-    - Route/Rte. as optional prefix
-
-    """
-    address_pattern = r'((?:[A-Z][^a-z\s]*[A-Z][^a-z\s]*[A-Z\s].*?\s+|\|URL end\|\s+))((?:Route |Rte\. )?\d+\s[A-Za-z0-9\s.,\'"-()]+?,\s(?:' + states + r'))'
+    Then captures everything from:
+    - First number encountered (e.g., street number, route number)
+    - Through all subsequent text (including additional numbers, street names, etc.)
+    - Until reaching ", XX" where XX is state abbreviation
+    - Including any optional parenthetical content before the state abbreviation
     
+    Examples:
+    "MIKE'S KITCHEN 170 Randall St. (at Tabor-Franchi VFW Post 239) Cranston, RI"
+    "SUGAR'S 1799 State Rd. 68 Embudo, NM"
+    "CHOPE'S 16145 S. Hwy. 28 La Mesa, NM"
+    """
+    address_pattern = r'((?:\|URL end\||[A-Z][^a-z\s]*[A-Z][^a-z\s]*[A-Z\s]*?))\s*(\d+[^|]*?,\s(?:' + states + r')(?:\s*\([^)]+\))?)'
+
     def format_address(match):
         prefix, address = match.groups()
         # Replace any internal linebreaks with space
