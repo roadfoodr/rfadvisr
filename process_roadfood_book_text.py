@@ -11,7 +11,8 @@ OUTPUT_ADDRESSES_FILE = os.path.join(DATA_DIR, "addresses.csv")
 PROCESSED_OUTPUT_FILE = os.path.join(DATA_DIR, "processed_roadfood.txt")
 
 SKIP_TITLES = {'B.J.'}  # Strings that should never be considered titles
-ALWAYS_TITLES = {'NICK\'S FAMOUS ROAST BEEF'}  # Strings that are always titles
+ALWAYS_TITLES = {}  # Strings that are always titles
+# ALWAYS_TITLES = {'NICK\'S FAMOUS ROAST BEEF'}  # Strings that are always titles
 HOURS_PATTERNS = ["BLD ", "LD ", "BL ", "BD ", "B ", "L ", "D "]  # Meal period indicators
 
 US_STATES = {
@@ -240,6 +241,80 @@ def remove_standalone_states(content):
     filtered_lines = [line for line in lines if line.strip() not in US_STATES]
     return '\n'.join(filtered_lines)
 
+def mark_titles(content):
+    """
+    Find titles and add markers around them.
+    Titles must:
+    - Begin at start of line
+    - Have 2+ consecutive capital letters or numbers
+    - May include whitespace
+    - End at end of line
+    - Not be within other markers
+    - Not contain full sentences (periods followed by spaces)
+    """
+    # First, split content into lines and process each line
+    lines = content.split('\n')
+    processed_lines = []
+    
+    for line in lines:
+        # Skip if line is empty or contains any marker tags
+        if not line.strip() or '|' in line:
+            processed_lines.append(line)
+            continue
+            
+        # Skip if line contains a period followed by space (likely a sentence)
+        if re.search(r'\.\s', line):
+            processed_lines.append(line)
+            continue
+            
+        # Check for 2+ consecutive capitals/numbers at start
+        consecutive_count = 0
+        first_word = line.split()[0] if line.split() else ""
+        for char in first_word:
+            if char.isupper() or char.isdigit():
+                consecutive_count += 1
+                if consecutive_count >= 2:
+                    # Found a title, add markers
+                    processed_lines.append(f'|title start| {line.strip()} |title end|')
+                    break
+            elif char.isspace():
+                continue
+            else:
+                consecutive_count = 0
+        else:
+            # No title found, keep original line
+            processed_lines.append(line)
+    
+    return '\n'.join(processed_lines)
+
+def find_all_titles(content):
+    """Extract all titles from content using the title markers"""
+    # Pattern matches anything between |title start| and |title end| markers
+    title_pattern = r'\|title start\|\s*(.*?)\s*\|title end\|'
+    
+    # Find all matches
+    titles = re.findall(title_pattern, content)
+    return titles
+
+def remove_question_mark_prefix(content):
+    """
+    Remove "? " prefix when followed by capital letters.
+    Pattern:
+    - Start of line
+    - Literal "? "
+    - One or more consecutive capital letters (ignoring punctuation)
+    """
+    # Pattern matches:
+    # ^ - start of line
+    # \? \s* - question mark followed by optional whitespace
+    # (?=[A-Z]) - positive lookahead for capital letter
+    pattern = r'^\?\s*(?=[A-Z])'
+    
+    # Process line by line to ensure we only match at start of lines
+    lines = content.split('\n')
+    processed_lines = [re.sub(pattern, '', line) for line in lines]
+    return '\n'.join(processed_lines)
+
 def main():
     content = read_text_file(INPUT_FILE)
     
@@ -259,6 +334,10 @@ def main():
         processed_content = left_trim_lines(processed_content)
         processed_content = mark_hours(processed_content)
         processed_content = left_trim_lines(processed_content)
+        processed_content = remove_question_mark_prefix(processed_content)
+        processed_content = left_trim_lines(processed_content)
+        processed_content = mark_titles(processed_content)
+        processed_content = left_trim_lines(processed_content)
         
         os.makedirs(os.path.dirname(PROCESSED_OUTPUT_FILE), exist_ok=True)
         with open(PROCESSED_OUTPUT_FILE, 'w', encoding='utf-8') as f:
@@ -269,8 +348,13 @@ def main():
         addresses = find_all_addresses(processed_content)
         df_addresses = pd.DataFrame(addresses, columns=['address'])
         df_addresses.to_csv(OUTPUT_ADDRESSES_FILE, index=False)
-        
         print(f"\nFound {len(addresses)} addresses.")
+
+        # Find and save titles
+        titles = find_all_titles(processed_content)
+        df_titles = pd.DataFrame(titles, columns=['title'])
+        df_titles.to_csv(OUTPUT_FILE, index=False)
+        print(f"\nFound {len(titles)} titles.")
     else:
         print("Failed to read file")
 
