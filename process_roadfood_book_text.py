@@ -352,6 +352,37 @@ def find_all_urls(content):
     urls = re.findall(url_pattern, content)
     return urls
 
+def mark_cost(content):
+    """
+    Find cost indicators and add markers around them.
+    Costs must be either:
+    1. Between "|" and "|hours end|" (1-3 $ characters)
+    2. Standalone on a line (1-3 $ characters)
+    """
+    # First pattern (as before):
+    # \| - literal pipe character
+    # \s* - any amount of whitespace (including none)
+    # (\${1,3}) - capture group for 1-3 $ characters
+    # \s* - any amount of whitespace (including none)
+    # \|hours end\| - literal "|hours end|" marker
+    pattern1 = r'\|\s*(\${1,3})\s*\|hours end\|'
+    replacement1 = r' |hours end|\n|cost start| \1 |cost end|\n'
+    content = re.sub(pattern1, replacement1, content)
+    
+    # Second pattern:
+    # ^ - start of line
+    # \s* - any leading whitespace
+    # (\${1,3}) - capture group for 1-3 $ characters
+    # \s* - any trailing whitespace
+    # $ - end of line
+    pattern2 = r'^\s*(\${1,3})\s*$'
+    replacement2 = r'|cost start| \1 |cost end|'
+    
+    # Process line by line for the second pattern
+    lines = content.split('\n')
+    processed_lines = [re.sub(pattern2, replacement2, line) for line in lines]
+    return '\n'.join(processed_lines)
+
 def main():
     content = read_text_file(INPUT_FILE)
     
@@ -374,6 +405,8 @@ def main():
         processed_content = remove_question_mark_prefix(processed_content)
         processed_content = left_trim_lines(processed_content)
         processed_content = mark_titles(processed_content)
+        processed_content = left_trim_lines(processed_content)
+        processed_content = mark_cost(processed_content)
         processed_content = left_trim_lines(processed_content)
         
         os.makedirs(os.path.dirname(PROCESSED_OUTPUT_FILE), exist_ok=True)
