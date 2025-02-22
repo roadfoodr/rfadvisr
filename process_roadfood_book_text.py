@@ -13,7 +13,7 @@ PROCESSED_OUTPUT_FILE = os.path.join(DATA_DIR, "processed_roadfood.txt")
 
 SKIP_TITLES = {'B.J.'}  # Strings that should never be considered titles
 ALWAYS_TITLES = {}  # Strings that are always titles
-# ALWAYS_TITLES = {'NICK\'S FAMOUS ROAST BEEF'}  # Strings that are always titles
+NEVER_TITLES = {'B.J.'}  # Strings that should never be considered titles
 ALWAYS_URLS = {'cornelldairybar.cfm'}  # Strings that should always be considered part of URLs
 ALWAYS_ADDRESSES = {
     ('605 8th Ave. S. Nashville, Tennessee', '605 8th Ave. S. Nashville, TN')  # (input pattern, replacement)
@@ -188,46 +188,47 @@ def mark_urls(content):
     
     return '\n'.join(processed_lines)
 
-def is_restaurant_title(line):
-    # Skip empty lines
-    if not line.strip():
-        return False
+# This function is not currently used, but is here for reference
+# def is_restaurant_title(line):
+#     # Skip empty lines
+#     if not line.strip():
+#         return False
     
-    line = line.strip()
+#     line = line.strip()
     
-    # Check special cases first
-    if line in SKIP_TITLES:
-        return False
-    if line in ALWAYS_TITLES:
-        return True
+#     # Check special cases first
+#     if line in SKIP_TITLES:
+#         return False
+#     if line in ALWAYS_TITLES:
+#         return True
         
-    # Skip known non-title patterns
-    if any(line.startswith(pattern) for pattern in HOURS_PATTERNS):
-        return False
+#     # Skip known non-title patterns
+#     if any(line.startswith(pattern) for pattern in HOURS_PATTERNS):
+#         return False
     
-    # Skip if the line is just a state name
-    if line in US_STATES:
-        # print(f"Skipping state name: {line}")
-        return False
+#     # Skip if the line is just a state name
+#     if line in US_STATES:
+#         # print(f"Skipping state name: {line}")
+#         return False
     
-    # Skip if first word contains numbers (likely an address)
-    first_word = line.split()[0] if line.split() else ""
-    if all(c.isdigit() for c in first_word):
-        return False
+#     # Skip if first word contains numbers (likely an address)
+#     first_word = line.split()[0] if line.split() else ""
+#     if all(c.isdigit() for c in first_word):
+#         return False
     
-    # Look for consecutive capital letters at start of line
-    consecutive_caps = 0
-    for char in first_word:
-        if char.isupper():
-            consecutive_caps += 1
-            if consecutive_caps >= 2:  # Found two consecutive capitals
-                return True
-        elif not char.isalpha():  # Skip punctuation
-            continue
-        else:  # Lowercase letter resets the count
-            consecutive_caps = 0
+#     # Look for consecutive capital letters at start of line
+#     consecutive_caps = 0
+#     for char in first_word:
+#         if char.isupper():
+#             consecutive_caps += 1
+#             if consecutive_caps >= 2:  # Found two consecutive capitals
+#                 return True
+#         elif not char.isalpha():  # Skip punctuation
+#             continue
+#         else:  # Lowercase letter resets the count
+#             consecutive_caps = 0
             
-    return False
+#     return False
 
 def mark_phones(content):
     """
@@ -286,28 +287,29 @@ def mark_titles(content):
     Find titles and add markers around them.
     Titles must:
     - Begin at start of line
-    - Have 2+ consecutive capital letters or numbers
+    - Have 2+ consecutive capital letters or numbers (ignoring punctuation)
+    - Must contain at least 1 capital letter
+    - Must not contain any lowercase letters
     - May include whitespace
     - End at end of line
     - Not be within other markers
-    - Not contain full sentences (periods followed by spaces)
+    - Not be in NEVER_TITLES set
     """
-    # First, split content into lines and process each line
     lines = content.split('\n')
     processed_lines = []
     
     for line in lines:
-        # Skip if line is empty or contains any marker tags
-        if not line.strip() or '|' in line:
+        # Skip if line is empty, contains markers, or is in NEVER_TITLES
+        if not line.strip() or '|' in line or line.strip() in NEVER_TITLES:
             processed_lines.append(line)
             continue
             
-        # Skip if line contains a period followed by space (likely a sentence)
-        if re.search(r'\.\s', line):
+        # Skip if line contains any lowercase letters or no capital letters
+        if any(c.islower() for c in line) or not any(c.isupper() for c in line):
             processed_lines.append(line)
             continue
             
-        # Check for 2+ consecutive capitals/numbers at start
+        # Check for 2+ consecutive capitals/numbers at start, ignoring punctuation
         consecutive_count = 0
         first_word = line.split()[0] if line.split() else ""
         for char in first_word:
@@ -317,10 +319,9 @@ def mark_titles(content):
                     # Found a title, add markers
                     processed_lines.append(f'|title start| {line.strip()} |title end|')
                     break
-            elif char.isspace():
-                continue
-            else:
+            elif char.isalpha():  # Only reset count on lowercase letters
                 consecutive_count = 0
+            # Ignore punctuation by not resetting the count
         else:
             # No title found, keep original line
             processed_lines.append(line)
