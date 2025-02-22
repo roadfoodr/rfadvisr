@@ -4,14 +4,15 @@ import os
 import re
 
 # Constants
+EDITION = '10th'
 DATA_DIR = "data"
-INPUT_FILE = os.path.join(DATA_DIR, "Roadfood_ 10th_edition_simplified.txt")
-OUTPUT_FILE = os.path.join(DATA_DIR, "restaurant_titles.csv")
-OUTPUT_ADDRESSES_FILE = os.path.join(DATA_DIR, "addresses.csv")
-OUTPUT_URLS_FILE = os.path.join(DATA_DIR, "urls.csv")
-PROCESSED_OUTPUT_FILE = os.path.join(DATA_DIR, "processed_roadfood.txt")
+INPUT_FILE = os.path.join(DATA_DIR, f"Roadfood_{EDITION}_edition_simplified.txt")
+OUTPUT_TITLES_FILE = os.path.join(DATA_DIR, f"Roadfood_{EDITION}_restaurant_titles.csv")
+OUTPUT_ADDRESSES_FILE = os.path.join(DATA_DIR, f"Roadfood_{EDITION}_addresses.csv")
+OUTPUT_URLS_FILE = os.path.join(DATA_DIR, f"Roadfood_{EDITION}_urls.csv")
+PROCESSED_OUTPUT_FILE = os.path.join(DATA_DIR, f"Roadfood_{EDITION}_edition_processed.txt")
+PROCESSED_CSV_FILE = os.path.join(DATA_DIR, f"Roadfood_{EDITION}_edition_processed.csv")
 
-SKIP_TITLES = {'B.J.'}  # Strings that should never be considered titles
 ALWAYS_TITLES = {'K. LAMAY\'S'}  # Strings that are always titles
 NEVER_TITLES = {'B.J.'}  # Strings that should never be considered titles
 ALWAYS_URLS = {'cornelldairybar.cfm'}  # Strings that should always be considered part of URLs
@@ -36,7 +37,16 @@ US_STATES = {
     'NEW JERSEY', 'NEW MEXICO', 'NEW YORK', 'NORTH CAROLINA', 'NORTH DAKOTA', 'OHIO',
     'OKLAHOMA', 'OREGON', 'PENNSYLVANIA', 'RHODE ISLAND', 'SOUTH CAROLINA', 'SOUTH DAKOTA',
     'TENNESSEE', 'TEXAS', 'UTAH', 'VERMONT', 'VIRGINIA', 'WASHINGTON', 'WEST VIRGINIA',
-    'WISCONSIN', 'WYOMING', 'DISTRICT OF COLUMBIA'
+    'WISCONSIN', 'WYOMING', 'DISTRICT OF COLUMBIA',
+    # Proper case versions
+    'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
+    'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa',
+    'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan',
+    'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire',
+    'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio',
+    'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota',
+    'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia',
+    'Wisconsin', 'Wyoming', 'District of Columbia'
 }
 
 # Add after other constants, before functions
@@ -478,6 +488,98 @@ def validate_current_sequence(sequence, start_pos):
             print(f"Error at position {start_pos}: Duplicate {field_type} field (Title: {title_content})")
             return
 
+def extract_complete_records(content):
+    """
+    Extract complete records from the processed content.
+    Each record should contain: title, URL (optional), address, phone (optional),
+    hours (optional), cost (optional), and content.
+    Handles whitespace consistently:
+    - Strips outer whitespace for all fields
+    - For single-line fields (title, URL, address, phone, hours, cost):
+      - Collapses internal whitespace to single spaces
+    - For content:
+      - Preserves line breaks
+      - Collapses multiple spaces to single spaces
+      - Removes empty lines
+    """
+    # Pattern to match any marked field
+    field_pattern = r'\|(title|URL|address|phone|hours|cost|content) start\|\s*(.*?)\s*\|\1 end\|'
+    
+    records = []
+    current_record = {
+        'title': None,
+        'URL': None,
+        'address': None,
+        'phone': None,
+        'hours': None,
+        'cost': None,
+        'content': []
+    }
+    
+    matches = re.finditer(field_pattern, content, re.DOTALL)
+    
+    for match in matches:
+        field_type = match.group(1)
+        field_content = match.group(2)
+        
+        # If we find a title and we already have one, start a new record
+        if field_type == 'title' and current_record['title'] is not None:
+            if current_record['title'] and current_record['address']:
+                # Process content blocks before saving
+                if current_record['content']:
+                    # Join content blocks, normalize whitespace while preserving meaningful line breaks
+                    content_text = ' '.join(current_record['content'])
+                    # Collapse multiple spaces and remove empty lines
+                    content_text = '\n'.join(
+                        ' '.join(line.split())
+                        for line in content_text.split('\n')
+                        if line.strip()
+                    )
+                    current_record['content'] = content_text
+                else:
+                    current_record['content'] = ''
+                records.append(current_record.copy())
+            # Start a new record
+            current_record = {
+                'title': None,
+                'URL': None,
+                'address': None,
+                'phone': None,
+                'hours': None,
+                'cost': None,
+                'content': []
+            }
+        
+        # Process and update the current record
+        if field_type == 'content':
+            # For content, preserve line breaks but normalize other whitespace
+            processed_content = '\n'.join(
+                ' '.join(line.split())
+                for line in field_content.split('\n')
+                if line.strip()
+            )
+            current_record['content'].append(processed_content)
+        else:
+            # For single-line fields, collapse all whitespace to single spaces
+            processed_content = ' '.join(field_content.split())
+            current_record[field_type] = processed_content
+    
+    # Don't forget the last record
+    if current_record['title'] and current_record['address']:
+        if current_record['content']:
+            content_text = ' '.join(current_record['content'])
+            content_text = '\n'.join(
+                ' '.join(line.split())
+                for line in content_text.split('\n')
+                if line.strip()
+            )
+            current_record['content'] = content_text
+        else:
+            current_record['content'] = ''
+        records.append(current_record)
+    
+    return records
+
 def main():
     content = read_text_file(INPUT_FILE)
     
@@ -510,28 +612,36 @@ def main():
         os.makedirs(os.path.dirname(PROCESSED_OUTPUT_FILE), exist_ok=True)
         with open(PROCESSED_OUTPUT_FILE, 'w', encoding='utf-8') as f:
             f.write(processed_content)
-        print(f"\nProcessed content saved to {PROCESSED_OUTPUT_FILE}")
+        print(f"\nProcessed text saved to {PROCESSED_OUTPUT_FILE}")
         
         # Add validation after processing
         print("\nValidating record sequences...")
         validate_record_sequence(processed_content)
         
+        # Extract complete records and create DataFrame
+        records = extract_complete_records(processed_content)
+        df_records = pd.DataFrame(records)
+        
+        # Save the complete records DataFrame
+        df_records.to_csv(PROCESSED_CSV_FILE, index=False)
+        print(f"\nSaved {len(records)} complete records to {PROCESSED_CSV_FILE}")
+        
         # Find and save URLs
         urls = find_all_urls(processed_content)
-        df_urls = pd.DataFrame(urls, columns=['url'])
-        df_urls.to_csv(OUTPUT_URLS_FILE, index=False)
+        # df_urls = pd.DataFrame(urls, columns=['url'])
+        # df_urls.to_csv(OUTPUT_URLS_FILE, index=False)
         print(f"\nFound {len(urls)} URLs.")
 
         # Find and save addresses
         addresses = find_all_addresses(processed_content)
-        df_addresses = pd.DataFrame(addresses, columns=['address'])
-        df_addresses.to_csv(OUTPUT_ADDRESSES_FILE, index=False)
+        # df_addresses = pd.DataFrame(addresses, columns=['address'])
+        # df_addresses.to_csv(OUTPUT_ADDRESSES_FILE, index=False)
         print(f"\nFound {len(addresses)} addresses.")
 
         # Find and save titles
         titles = find_all_titles(processed_content)
-        df_titles = pd.DataFrame(titles, columns=['title'])
-        df_titles.to_csv(OUTPUT_FILE, index=False)
+        # df_titles = pd.DataFrame(titles, columns=['title'])
+        # df_titles.to_csv(OUTPUT_TITLES_FILE, index=False)
         print(f"\nFound {len(titles)} titles.")
     else:
         print("Failed to read file")
