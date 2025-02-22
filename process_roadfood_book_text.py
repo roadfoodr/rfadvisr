@@ -12,7 +12,7 @@ OUTPUT_URLS_FILE = os.path.join(DATA_DIR, "urls.csv")
 PROCESSED_OUTPUT_FILE = os.path.join(DATA_DIR, "processed_roadfood.txt")
 
 SKIP_TITLES = {'B.J.'}  # Strings that should never be considered titles
-ALWAYS_TITLES = {}  # Strings that are always titles
+ALWAYS_TITLES = {'K. LAMAY\'S'}  # Strings that are always titles
 NEVER_TITLES = {'B.J.'}  # Strings that should never be considered titles
 ALWAYS_URLS = {'cornelldairybar.cfm'}  # Strings that should always be considered part of URLs
 ALWAYS_ADDRESSES = {
@@ -189,48 +189,6 @@ def mark_urls(content):
     
     return '\n'.join(processed_lines)
 
-# This function is not currently used, but is here for reference
-# def is_restaurant_title(line):
-#     # Skip empty lines
-#     if not line.strip():
-#         return False
-    
-#     line = line.strip()
-    
-#     # Check special cases first
-#     if line in SKIP_TITLES:
-#         return False
-#     if line in ALWAYS_TITLES:
-#         return True
-        
-#     # Skip known non-title patterns
-#     if any(line.startswith(pattern) for pattern in HOURS_PATTERNS):
-#         return False
-    
-#     # Skip if the line is just a state name
-#     if line in US_STATES:
-#         # print(f"Skipping state name: {line}")
-#         return False
-    
-#     # Skip if first word contains numbers (likely an address)
-#     first_word = line.split()[0] if line.split() else ""
-#     if all(c.isdigit() for c in first_word):
-#         return False
-    
-#     # Look for consecutive capital letters at start of line
-#     consecutive_caps = 0
-#     for char in first_word:
-#         if char.isupper():
-#             consecutive_caps += 1
-#             if consecutive_caps >= 2:  # Found two consecutive capitals
-#                 return True
-#         elif not char.isalpha():  # Skip punctuation
-#             continue
-#         else:  # Lowercase letter resets the count
-#             consecutive_caps = 0
-            
-#     return False
-
 def mark_phones(content):
     """
     Find phone numbers and add markers around them.
@@ -291,11 +249,17 @@ def mark_titles(content):
     - End at end of line
     - Not be within other markers
     - Not be in NEVER_TITLES set
+    - Or be in ALWAYS_TITLES set
     """
     lines = content.split('\n')
     processed_lines = []
     
     for line in lines:
+        # Check ALWAYS_TITLES first
+        if line.strip() in ALWAYS_TITLES:
+            processed_lines.append(f'|title start| {line.strip()} |title end|')
+            continue
+            
         # Skip if line is empty, contains markers, or is in NEVER_TITLES
         if not line.strip() or '|' in line or line.strip() in NEVER_TITLES:
             processed_lines.append(line)
