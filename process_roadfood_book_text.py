@@ -16,7 +16,15 @@ ALWAYS_TITLES = {'K. LAMAY\'S'}  # Strings that are always titles
 NEVER_TITLES = {'B.J.'}  # Strings that should never be considered titles
 ALWAYS_URLS = {'cornelldairybar.cfm'}  # Strings that should always be considered part of URLs
 ALWAYS_ADDRESSES = {
-    ('605 8th Ave. S. Nashville, Tennessee', '605 8th Ave. S. Nashville, TN')  # (input pattern, replacement)
+    ('605 8th Ave. S. Nashville, Tennessee', '605 8th Ave. S. Nashville, TN'),  # (input pattern, replacement)
+    ('Fulton and Dorrance St. at Kennedy Plz. Providence, RI', 'Fulton and Dorrance St. at Kennedy Plz. Providence, RI'),
+    ('226 6th St. Augusta, GA', '226 6th St. Augusta, GA'),
+    ('Windy Hill Rd. Smyrna, GA', 'Windy Hill Rd. Smyrna, GA'),
+    ('Lane Packing Company 50 Lane Rd. Fort Valley, GA', 'Lane Packing Company 50 Lane Rd. Fort Valley, GA'),
+    ('E2918 State Hwy. M-67 Trenary, MI', 'E2918 State Hwy. M-67 Trenary, MI'),
+    ('3131 S. 27th St. Milwaukee, WI', '3131 S. 27th St. Milwaukee, WI'),
+    ('N2030 Spring St. Stockholm, WI', 'N2030 Spring St. Stockholm, WI'),
+    ('1516 W. 2nd Ave. Spokane, WA', '1516 W. 2nd Ave. Spokane, WA')
 }
 HOURS_PATTERNS = ["BLD ", "LD ", "BL ", "BD ", "B ", "L ", "D "]  # Meal period indicators
 
@@ -28,7 +36,7 @@ US_STATES = {
     'NEW JERSEY', 'NEW MEXICO', 'NEW YORK', 'NORTH CAROLINA', 'NORTH DAKOTA', 'OHIO',
     'OKLAHOMA', 'OREGON', 'PENNSYLVANIA', 'RHODE ISLAND', 'SOUTH CAROLINA', 'SOUTH DAKOTA',
     'TENNESSEE', 'TEXAS', 'UTAH', 'VERMONT', 'VIRGINIA', 'WASHINGTON', 'WEST VIRGINIA',
-    'WISCONSIN', 'WYOMING'
+    'WISCONSIN', 'WYOMING', 'DISTRICT OF COLUMBIA'
 }
 
 # Add after other constants, before functions
@@ -37,7 +45,7 @@ STATE_ABBREVS = {
     'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
     'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
     'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
-    'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
+    'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC'
 }
 
 
@@ -125,7 +133,9 @@ def mark_addresses(content):
     Will not match: "along US 17, SC"
     """
     # Updated pattern to allow directional prefixes (N., S., E., W.) before numbers
-    address_pattern = r'((?:\|URL end\||[A-Z][^a-z\s]*[A-Z][^a-z\s]*[A-Z\s]*?))\s*(?<!US\s)((?:Route\s+|(?:[NSEW]\.\s+)?(?:\d+))[^|]*?,\s(?:' + states + r')(?:\s*\([^)]+\))?)'
+    # Updated pattern to include "Hwy. " as an additional prefix option
+    address_pattern = r'((?:\|URL end\||[A-Z][^a-z\s]*[A-Z][^a-z\s]*[A-Z\s]*?))\s*(?<!US\s)((?:Route\s+|Exit\s+|Hwy\.\s+|(?:[NSEW]\.\s+)?(?:\d+))[^|]*?,\s(?:' + states + r')(?:\s*\([^)]+\))?)'
+
 
     def format_address(match):
         prefix, address = match.groups()
@@ -164,10 +174,10 @@ def mark_urls(content):
     # ^ - start of line
     # \s* - optional whitespace
     # [^\s]{2,40} - 2-40 non-whitespace characters
-    # \.(com|biz|org|net|edu) - literal ".com" or ".biz" or ".org" or ".net" or ".edu"
+    # \.(com|biz|org|net|edu|coop) - literal ".com" or ".biz" or ".org" or ".net" or ".edu" or ".coop"
     # (?:/[\w\-._#]+(?:\.(?:htm|html|aspx))?)*/?  - optional path segments with optional trailing slash
     # \s*$ - optional whitespace and end of line
-    url_pattern = r'^(\s*[^\s]{2,40}\.(com|biz|org|net|edu)(?:/[\w\-._#]+(?:\.(?:htm|html|aspx))?)*/?)\s*$'
+    url_pattern = r'^(\s*[^\s]{2,40}\.(com|biz|org|net|edu|coop)(?:/[\w\-._#]+(?:\.(?:htm|html|aspx))?)*/?)\s*$'
     
     def format_url(match):
         url = match.group(1).strip()
@@ -403,6 +413,71 @@ def add_title_spacing(content):
     
     return result
 
+def validate_record_sequence(content):
+    """
+    Validate that records follow the expected sequence:
+    title -> [URL] -> address -> [phone] -> [hours] -> [cost] -> content -> (repeat)
+    Square brackets indicate optional fields.
+    """
+    # Pattern to match any marked field
+    field_pattern = r'\|(title|URL|address|phone|hours|cost|content) start\|\s*(.*?)\s*\|\1 end\|'
+    
+    # Expected sequence (None means field is optional)
+    expected_sequence = ['title', 'URL', 'address', None, None, None, 'content']
+    
+    # Find all marked fields
+    matches = re.finditer(field_pattern, content, re.DOTALL)
+    current_sequence = []
+    sequence_start_pos = 0
+    
+    for match in matches:
+        field_type = match.group(1)
+        field_content = match.group(2)
+        
+        # If we find a title and we're already in a sequence, validate the current sequence
+        if field_type == 'title' and current_sequence:
+            validate_current_sequence(current_sequence, sequence_start_pos)
+            current_sequence = []
+        
+        # Start new sequence or add to existing
+        if field_type == 'title':
+            sequence_start_pos = match.start()
+        current_sequence.append((field_type, field_content, match.start()))
+    
+    # Validate the last sequence
+    if current_sequence:
+        validate_current_sequence(current_sequence, sequence_start_pos)
+
+def validate_current_sequence(sequence, start_pos):
+    """Helper function to validate a single record sequence"""
+    # Extract just the field types
+    field_types = [field[0] for field in sequence]
+    
+    # Get the title content for error messages
+    title_content = next((field[1] for field in sequence if field[0] == 'title'), 'Unknown Title')
+    
+    # Basic validation rules
+    if field_types[0] != 'title':
+        print(f"Error at position {start_pos}: Sequence doesn't start with title (Title: {title_content})")
+        return
+    
+    if 'address' not in field_types[1:4]:  # Address should be in first few fields after title
+        print(f"Error at position {start_pos}: Missing address after title (Title: {title_content})")
+        return
+    
+    # Optional fields (URL, phone, hours, cost) can appear in any order after title
+    # but before content
+    
+    if 'content' not in field_types:
+        print(f"Error at position {start_pos}: Missing content field (Title: {title_content})")
+        return
+    
+    # Check for duplicate fields
+    for field_type in set(field_types):
+        if field_types.count(field_type) > 1 and field_type != 'content':
+            print(f"Error at position {start_pos}: Duplicate {field_type} field (Title: {title_content})")
+            return
+
 def main():
     content = read_text_file(INPUT_FILE)
     
@@ -436,6 +511,10 @@ def main():
         with open(PROCESSED_OUTPUT_FILE, 'w', encoding='utf-8') as f:
             f.write(processed_content)
         print(f"\nProcessed content saved to {PROCESSED_OUTPUT_FILE}")
+        
+        # Add validation after processing
+        print("\nValidating record sequences...")
+        validate_record_sequence(processed_content)
         
         # Find and save URLs
         urls = find_all_urls(processed_content)
