@@ -258,20 +258,16 @@ def mark_phones(content):
 def mark_hours(content):
     """
     Find hours and add markers around them.
-    Hours are either:
-    - Start with one of the HOURS_PATTERNS and end with 1-3 $ characters
-    - Start with "(limited" or similar text and end with 1-3 $ characters
-    - Just 1-3 $ characters on a line by themselves
+    Hours must:
+    - Start with one of the HOURS_PATTERNS or "(limited" type text
+    - End with 1-3 $ characters
     Must be at start of line
     """
     # Create pattern that matches any of the hours patterns
     hours_prefix = '|'.join(map(re.escape, HOURS_PATTERNS))
     
-    # Pattern matches either:
-    # 1. Hours pattern followed by text and $ signs
-    # 2. Parenthetical text followed by $ signs
-    # 3. Just $ signs
-    hours_pattern = rf'^(\s*(?:(?:{hours_prefix})|(?:\([^)]+\))|(?:\s*)).*?[|]?\s*\${{1,3}})'
+    # Pattern now requires either an hours prefix or parenthetical at start
+    hours_pattern = rf'^(\s*(?:{hours_prefix}|(?:\([^)]+\))).*?\${{1,3}})'
     
     def format_hours(match):
         hours = match.group(1).strip()
