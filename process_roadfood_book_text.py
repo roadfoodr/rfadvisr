@@ -347,6 +347,62 @@ def mark_cost(content):
     processed_lines = [re.sub(pattern2, replacement2, line) for line in lines]
     return '\n'.join(processed_lines)
 
+def mark_remaining_content(content):
+    """
+    Mark any text that isn't already enclosed in markers with |content start| and |content end|.
+    Consecutive unmarked lines (including blank lines) are combined into a single content block.
+    Only break content blocks when encountering lines with markers.
+    """
+    lines = content.split('\n')
+    processed_lines = []
+    current_content_block = []
+    
+    for line in lines:
+        # If line contains markers, process any accumulated content block first
+        if '|' in line:
+            if current_content_block:
+                # Join with newlines to preserve internal spacing
+                combined_content = '\n'.join(current_content_block).strip()
+                if combined_content:
+                    processed_lines.append(f'|content start| {combined_content} |content end|')
+                current_content_block = []
+            processed_lines.append(line)
+            continue
+        
+        # Accumulate unmarked content (including blank lines)
+        current_content_block.append(line)
+    
+    # Process any remaining content block at the end
+    if current_content_block:
+        combined_content = '\n'.join(current_content_block).strip()
+        if combined_content:
+            processed_lines.append(f'|content start| {combined_content} |content end|')
+    
+    return '\n'.join(processed_lines)
+
+def add_title_spacing(content):
+    """
+    Add exactly two newlines before each title marker, except for the first title.
+    """
+    # First, normalize any existing newlines before titles to a single newline
+    content = re.sub(r'\n+\|title start\|', r'\n|title start|', content)
+    
+    # Split into first title and rest
+    parts = content.split('|title start|', 1)
+    if len(parts) == 1:  # No titles found
+        return content
+        
+    # Handle first part and first title without extra newlines
+    result = parts[0] + '|title start|'
+    
+    # Handle remaining content by adding two newlines before each title
+    if len(parts) > 1:
+        remaining = parts[1]
+        remaining = re.sub(r'\n*\|title start\|', r'\n\n|title start|', remaining)
+        result += remaining
+    
+    return result
+
 def main():
     content = read_text_file(INPUT_FILE)
     
@@ -372,6 +428,9 @@ def main():
         processed_content = left_trim_lines(processed_content)
         processed_content = mark_cost(processed_content)
         processed_content = left_trim_lines(processed_content)
+        processed_content = mark_remaining_content(processed_content)
+        processed_content = left_trim_lines(processed_content)
+        processed_content = add_title_spacing(processed_content)
         
         os.makedirs(os.path.dirname(PROCESSED_OUTPUT_FILE), exist_ok=True)
         with open(PROCESSED_OUTPUT_FILE, 'w', encoding='utf-8') as f:
