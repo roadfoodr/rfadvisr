@@ -17,7 +17,21 @@ MODEL_EMBEDDING = 'text-embedding-ada-002'
 
 # 1.0 DATA PREPARATION ----
 
-df = pd.read_csv('data/Roadfood_10th_edition_processed.csv')
+# Read only specific columns from the CSV
+columns_to_read = ['ID', 'Restaurant', 'URL', 'Address', 'City', 'State', 'Region', 
+                   'phone', 'hours', 'Crossout', 'Honor Roll', 'Recommend', 
+                   'long', 'lat', 'geohash', 'content']
+
+df = pd.read_csv('data/Roadfood_10th_reprocessed_final.csv', usecols=columns_to_read)
+
+# Filter out records where Crossout is 'y'
+print(f"Total records before filtering: {len(df)}")
+df = df[df['Crossout'] != 'y']
+print(f"Records after removing crossed out entries: {len(df)}")
+
+# Remove the Crossout column as it's no longer needed
+df = df.drop(columns=['Crossout'])
+
 df.head()
 
 # * Document Loaders
@@ -30,6 +44,22 @@ documents = loader.load()
 
 # documents[0]
 
+# * Examining Metadata
+# Print all metadata fields from the first document to see what's available
+print("\nDefault metadata fields in documents:")
+if documents:
+    print(documents[0].metadata.keys())
+
+# * Controlling Metadata Fields
+# If you want to control which metadata fields are stored in ChromaDB,
+# you can modify the documents before creating the vector store:
+
+# Option 1: Keep only specific metadata fields
+# metadata_fields_to_keep = ['Restaurant', 'Address', 'State', 'City']
+# for doc in documents:
+#     doc.metadata = {k: doc.metadata[k] for k in metadata_fields_to_keep if k in doc.metadata}
+
+
 # documents[0].metadata
 # documents[0].page_content
 
@@ -40,15 +70,16 @@ documents = loader.load()
 
 # * Post Processing Text
 
-# IMPORTANT: Prepend the title and author to the page content
+# IMPORTANT: Prepend the restaurant name and location to the page content
 # - Helps with adding sources and searching titles
 for doc in documents:
-    # Retrieve the title and author from the document's metadata
-    restaurant_name = doc.metadata.get('title', 'Unknown Restaurant')
-    address = doc.metadata.get('address', 'Unknown Address')
+    # Retrieve the restaurant name, city and state from the document's metadata
+    restaurant_name = doc.metadata.get('Restaurant', 'Unknown Restaurant')
+    city = doc.metadata.get('City', 'Unknown City')
+    state = doc.metadata.get('State', 'Unknown State')
     
-    # Prepend the title and author to the page content
-    updated_content = f"Restaurant: {restaurant_name}\nAddress: {address}\n\n{doc.page_content}"
+    # Prepend the restaurant name, city and state to the page content
+    updated_content = f"Restaurant: {restaurant_name}\nLocation: {city}, {state}\n\n{doc.page_content}"
     
     # Update the document's page content
     doc.page_content = updated_content
@@ -96,6 +127,26 @@ else:
     )
 
 # vectorstore
+
+# * Examining Stored Metadata in ChromaDB
+# Retrieve a document to see what metadata is stored
+print("\nMetadata stored in ChromaDB:")
+retrieved_doc = vectorstore.similarity_search("", k=1)[0]
+print(retrieved_doc.metadata)
+
+# * Filtering by Metadata in Searches
+# You can filter searches by metadata
+print("\nFiltered search by metadata:")
+# Example: Search for restaurants in a specific state (if 'State' is in your metadata)
+if 'State' in retrieved_doc.metadata:
+    state_to_search = retrieved_doc.metadata['State']
+    filtered_results = vectorstore.similarity_search(
+        "good food",
+        k=2,
+        filter={"State": state_to_search}
+    )
+    for i, doc in enumerate(filtered_results):
+        print(f"Result {i+1}: {doc.page_content.split('\\n')[0]}")
 
 # * Similarity Search: The whole reason we did this
 
