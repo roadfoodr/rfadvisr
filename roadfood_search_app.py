@@ -1,4 +1,4 @@
-import gradio as gr
+import streamlit as st
 import os
 import yaml
 from langchain_openai import OpenAIEmbeddings
@@ -56,46 +56,73 @@ def search_restaurants(query, num_results=4, save_results=False):
     except Exception as e:
         return f"Error during search: {str(e)}"
 
-# Create Gradio interface
-with gr.Blocks(title=f"Roadfood {EDITION} Edition Search") as demo:
-    gr.Markdown(f"# Roadfood {EDITION} Edition Restaurant Search")
-    gr.Markdown("Search for restaurants based on your preferences, cuisine, location, etc.")
-    
-    with gr.Row():
-        with gr.Column():
-            query_input = gr.Textbox(
-                label="What are you looking for?",
-                placeholder="e.g., 'best BBQ in Texas' or 'unique seafood restaurants'"
-            )
-            num_results = gr.Slider(
-                minimum=1,
-                maximum=10,
-                value=4,
-                step=1,
-                label="Number of results"
-            )
-            save_checkbox = gr.Checkbox(label="Save results to file", value=False)
-            search_button = gr.Button("Search")
-        
-    results_output = gr.Markdown(label="Search Results")
-    
-    search_button.click(
-        fn=search_restaurants,
-        inputs=[query_input, num_results, save_checkbox],
-        outputs=results_output
-    )
-    
-    gr.Examples(
-        examples=[
-            ["Where is the best BBQ?"],
-            ["Unique seafood restaurants on the East Coast"],
-            ["Famous diners in New Jersey"],
-            ["Where can I find good pie?"],
-            ["Historic restaurants with great burgers"]
-        ],
-        inputs=query_input
-    )
+# Set up Streamlit page configuration
+st.set_page_config(
+    page_title=f"Roadfood {EDITION} Edition Search",
+    page_icon="🍽️",
+    layout="wide"
+)
 
-# Launch the app
-if __name__ == "__main__":
-    demo.launch() 
+# Create Streamlit interface
+st.title(f"Roadfood {EDITION} Edition Restaurant Search")
+st.markdown("Search for restaurants based on your preferences, cuisine, location, etc.")
+
+# Sidebar for inputs
+with st.sidebar:
+    st.header("Search Options")
+    
+    # Example queries
+    st.subheader("Example Searches")
+    example_queries = [
+        "Where is the best BBQ?",
+        "Unique seafood restaurants on the East Coast",
+        "Famous diners in New Jersey",
+        "Where can I find good pie?",
+        "Historic restaurants with great burgers"
+    ]
+    
+    selected_example = st.selectbox(
+        "Try an example search:",
+        [""] + example_queries,
+        index=0
+    )
+    
+    # Search parameters
+    query_input = st.text_area(
+        "What are you looking for?",
+        value=selected_example,
+        placeholder="e.g., 'best BBQ in Texas' or 'unique seafood restaurants'"
+    )
+    
+    num_results = st.slider(
+        "Number of results",
+        min_value=1,
+        max_value=10,
+        value=4,
+        step=1
+    )
+    
+    save_checkbox = st.checkbox("Save results to file", value=False)
+    
+    search_button = st.button("Search")
+
+# Main content area
+if search_button and query_input:
+    with st.spinner("Searching for restaurants..."):
+        results = search_restaurants(query_input, num_results, save_checkbox)
+        st.markdown(results)
+elif search_button:
+    st.warning("Please enter a search query.")
+
+# Display some information about the app
+with st.expander("About this app"):
+    st.markdown(f"""
+    This app searches through the Roadfood database to find restaurants matching your criteria.
+    It uses vector embeddings to find the most relevant matches to your query.
+    
+    The database contains restaurants from the Roadfood guide {EDITION} edition.
+    """)
+
+# Run the app
+# Note: No need for if __name__ == "__main__" in Streamlit
+# Streamlit apps are run with the command: streamlit run roadfood_search_app.py
