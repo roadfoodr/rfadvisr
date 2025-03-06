@@ -281,9 +281,13 @@ if 'df_excel' in locals() and 'df_csv' in locals():
                     
                     # Update the original merged DataFrame with the match
                     for col in ['ID', 'City', 'Address', 'Region', 'Crossout', 
-                               'Honor Roll', 'Recommend', 'long', 'lat', 'geohash', 'Restaurant']:
+                               'Honor Roll', 'Recommend', 'long', 'lat', 'geohash']:
                         if col in excel_row and col in merged_df.columns:
                             merged_df.at[idx, col] = excel_row[col]
+                    
+                    # Special handling for Restaurant column which was renamed to Restaurant_excel
+                    if 'Restaurant_excel' in excel_row and 'Restaurant' in merged_df.columns:
+                        merged_df.at[idx, 'Restaurant'] = excel_row['Restaurant_excel']
                     
                     second_pass_matches += 1
                     matched_in_second_pass.append({
@@ -370,9 +374,13 @@ if 'df_excel' in locals() and 'df_csv' in locals():
                         
                         # Update the original merged DataFrame with the match
                         for col in ['ID', 'City', 'Address', 'Region', 'Crossout', 
-                                   'Honor Roll', 'Recommend', 'long', 'lat', 'geohash', 'Restaurant']:
+                                   'Honor Roll', 'Recommend', 'long', 'lat', 'geohash']:
                             if col in excel_row and col in merged_df.columns:
                                 merged_df.at[idx, col] = excel_row[col]
+                        
+                        # Special handling for Restaurant column which was renamed to Restaurant_excel
+                        if 'Restaurant_excel' in excel_row and 'Restaurant' in merged_df.columns:
+                            merged_df.at[idx, 'Restaurant'] = excel_row['Restaurant_excel']
                         
                         third_pass_matches += 1
                         matched_in_third_pass.append({
