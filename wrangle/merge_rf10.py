@@ -41,6 +41,10 @@ if os.path.exists(csv_file_path):
     # Read the CSV file into a pandas DataFrame
     df_csv = pd.read_csv(csv_file_path)
     
+    # Rename 'address' column to 'address_full'
+    if 'address' in df_csv.columns:
+        df_csv.rename(columns={'address': 'address_full'}, inplace=True)
+    
     # Print the column names
     print("\nColumn names in the CSV DataFrame:")
     for i, col in enumerate(df_csv.columns):
@@ -59,8 +63,8 @@ else:
 if 'df_excel' in locals() and 'df_csv' in locals():
     print("\n\n=== Processing and Merging Data ===")
     
-    # Check if 'address' column exists in the CSV DataFrame
-    if 'address' in df_csv.columns:
+    # Check if 'address_full' column exists in the CSV DataFrame
+    if 'address_full' in df_csv.columns:
         print("Extracting state from address in CSV file...")
         
         # Function to extract state from address
@@ -87,7 +91,7 @@ if 'df_excel' in locals() and 'df_csv' in locals():
             return None
         
         # Apply the function to extract state
-        df_csv['State'] = df_csv['address'].apply(extract_state)
+        df_csv['State'] = df_csv['address_full'].apply(extract_state)
         
         # Count how many states were successfully extracted
         state_count = df_csv['State'].notna().sum()
@@ -95,10 +99,10 @@ if 'df_excel' in locals() and 'df_csv' in locals():
         
         # Show a sample of addresses and extracted states
         print("\nSample of addresses and extracted states:")
-        sample_df = df_csv[['address', 'State']].head(5)
+        sample_df = df_csv[['address_full', 'State']].head(5)
         print(sample_df)
     else:
-        print("Warning: 'address' column not found in CSV file")
+        print("Warning: 'address_full' column not found in CSV file")
     
     # Prepare for merging
     print("\nMerging data from Excel into CSV...")
@@ -156,7 +160,7 @@ if 'df_excel' in locals() and 'df_csv' in locals():
         
         # Define the desired column order
         desired_order = [
-            'ID', 'title', 'Restaurant', 'URL', 'address', 'Address', 'City', 'State', 'Region',
+            'ID', 'title', 'Restaurant', 'URL', 'address_full', 'Address', 'City', 'State', 'Region',
             'phone', 'hours', 'cost', 'content', 'Crossout', 'Honor Roll', 'Recommend',
             'long', 'lat', 'geohash'
         ]
