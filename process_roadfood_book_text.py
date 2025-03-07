@@ -25,7 +25,11 @@ ALWAYS_ADDRESSES = {
     ('E2918 State Hwy. M-67 Trenary, MI', 'E2918 State Hwy. M-67 Trenary, MI'),
     ('3131 S. 27th St. Milwaukee, WI', '3131 S. 27th St. Milwaukee, WI'),
     ('N2030 Spring St. Stockholm, WI', 'N2030 Spring St. Stockholm, WI'),
-    ('1516 W. 2nd Ave. Spokane, WA', '1516 W. 2nd Ave. Spokane, WA')
+    ('1516 W. 2nd Ave. Spokane, WA', '1516 W. 2nd Ave. Spokane, WA'),
+    ('Highway 75 S. \nLe Mars, IA', 'Highway 75 S. Le Mars, IA'),
+    ('Park Ave. & 36th St. South Tucson, AZ', 'Park Ave. & 36th St. South Tucson, AZ'),
+    ('San Francisco St. & Old Santa Fe Tr., on the Plaza Santa Fe, NM', 
+     'San Francisco St. & Old Santa Fe Tr., on the Plaza Santa Fe, NM')
 }
 HOURS_PATTERNS = ["BLD ", "LD ", "BL ", "BD ", "B ", "L ", "D "]  # Meal period indicators
 
@@ -133,7 +137,7 @@ def mark_addresses(content):
     Then captures everything from:
     - First number encountered (e.g., street number, route number) or the string "Route", but not if preceded by "US "
     - Through all subsequent text (including additional numbers, street names, etc.)
-    - Until reaching ", XX" where XX is state abbreviation
+    - Until reaching ", XX" where XX is state abbreviation   NOTE: this doesn't work if the address is split across multiple lines
     - Including any optional parenthetical content after the state
     
     Examples:
@@ -591,6 +595,8 @@ def main():
         processed_content = left_trim_lines(processed_content)
         processed_content = remove_standalone_states(processed_content)
         processed_content = left_trim_lines(processed_content)
+        processed_content = remove_question_mark_prefix(processed_content)
+        processed_content = left_trim_lines(processed_content)
         processed_content = mark_urls(processed_content)
         processed_content = left_trim_lines(processed_content)
         processed_content = mark_addresses(processed_content)
@@ -598,8 +604,6 @@ def main():
         processed_content = mark_phones(processed_content)
         processed_content = left_trim_lines(processed_content)
         processed_content = mark_hours(processed_content)
-        processed_content = left_trim_lines(processed_content)
-        processed_content = remove_question_mark_prefix(processed_content)
         processed_content = left_trim_lines(processed_content)
         processed_content = mark_titles(processed_content)
         processed_content = left_trim_lines(processed_content)
