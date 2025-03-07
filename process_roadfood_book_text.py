@@ -195,6 +195,8 @@ def mark_urls(content):
     
     def format_url(match):
         url = match.group(1).strip()
+        # Remove all whitespace within the URL
+        url = ''.join(url.split())
         if url.endswith('/'):
             url = url.rstrip('/')
         return f'|URL start| {url} |URL end|\n'
@@ -206,6 +208,8 @@ def mark_urls(content):
         # Special case for ALWAYS_URLS
         if any(always_url in line for always_url in ALWAYS_URLS):
             stripped_line = line.strip()
+            # Remove all whitespace within the URL
+            stripped_line = ''.join(stripped_line.split())
             processed_lines.append(f'|URL start| {stripped_line} |URL end|\n')
             continue
         # Normal URL processing
