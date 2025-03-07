@@ -17,6 +17,21 @@ MODEL_EMBEDDING = 'text-embedding-ada-002'
 
 # 1.0 DATA PREPARATION ----
 
+# Create a mapping of state abbreviations to full state names
+state_mapping = {
+    'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
+    'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware', 'FL': 'Florida', 'GA': 'Georgia',
+    'HI': 'Hawaii', 'ID': 'Idaho', 'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa',
+    'KS': 'Kansas', 'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+    'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi', 'MO': 'Missouri',
+    'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada', 'NH': 'New Hampshire', 'NJ': 'New Jersey',
+    'NM': 'New Mexico', 'NY': 'New York', 'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio',
+    'OK': 'Oklahoma', 'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+    'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont',
+    'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming',
+    'DC': 'District of Columbia', 'PR': 'Puerto Rico', 'VI': 'Virgin Islands'
+}
+
 # Read only specific columns from the CSV
 columns_to_read = ['ID', 'Restaurant', 'URL', 'Address', 'City', 'State', 'Region', 
                    'phone', 'hours', 'Crossout', 'Honor Roll', 'Recommend', 
@@ -31,6 +46,10 @@ print(f"Records after removing crossed out entries: {len(df)}")
 
 # Remove the Crossout column as it's no longer needed
 df = df.drop(columns=['Crossout'])
+
+# Add the full state name based on the abbreviation
+df['State Name'] = df['State'].map(state_mapping)
+print(f"Added 'State Name' field to the dataframe")
 
 df.head()
 
@@ -49,24 +68,16 @@ documents = loader.load()
 print("\nDefault metadata fields in documents:")
 if documents:
     print(documents[0].metadata.keys())
+    print(f"Example State: {documents[0].metadata.get('State')} -> State Name: {documents[0].metadata.get('State Name')}")
 
 # * Controlling Metadata Fields
 # If you want to control which metadata fields are stored in ChromaDB,
 # you can modify the documents before creating the vector store:
 
 # Option 1: Keep only specific metadata fields
-# metadata_fields_to_keep = ['Restaurant', 'Address', 'State', 'City']
+# metadata_fields_to_keep = ['Restaurant', 'Address', 'State', 'State Name', 'City']
 # for doc in documents:
 #     doc.metadata = {k: doc.metadata[k] for k in metadata_fields_to_keep if k in doc.metadata}
-
-
-# documents[0].metadata
-# documents[0].page_content
-
-# pprint(documents[0].page_content)
-
-# for doc in documents:
-#     print(len(doc.page_content))
 
 # * Post Processing Text
 
@@ -77,9 +88,10 @@ for doc in documents:
     restaurant_name = doc.metadata.get('Restaurant', 'Unknown Restaurant')
     city = doc.metadata.get('City', 'Unknown City')
     state = doc.metadata.get('State', 'Unknown State')
+    state_name = doc.metadata.get('State Name', 'Unknown State')
     
     # Prepend the restaurant name, city and state to the page content
-    updated_content = f"Restaurant: {restaurant_name}\nLocation: {city}, {state}\n\n{doc.page_content}"
+    updated_content = f"Restaurant: {restaurant_name}\nLocation: {city}, {state_name}\n\n{doc.page_content}"
     
     # Update the document's page content
     doc.page_content = updated_content
@@ -140,12 +152,24 @@ print("\nFiltered search by metadata:")
 # Example: Search for restaurants in a specific state (if 'State' is in your metadata)
 if 'State' in retrieved_doc.metadata:
     state_to_search = retrieved_doc.metadata['State']
+    state_name_to_search = retrieved_doc.metadata['State Name']
+    
+    print(f"Filtering by state abbreviation '{state_to_search}':")
     filtered_results = vectorstore.similarity_search(
         "good food",
         k=2,
         filter={"State": state_to_search}
     )
     for i, doc in enumerate(filtered_results):
+        print(f"Result {i+1}: {doc.page_content.split('\\n')[0]}")
+    
+    print(f"\nFiltering by full state name '{state_name_to_search}':")
+    filtered_results_by_name = vectorstore.similarity_search(
+        "good food",
+        k=2,
+        filter={"State Name": state_name_to_search}
+    )
+    for i, doc in enumerate(filtered_results_by_name):
         print(f"Result {i+1}: {doc.page_content.split('\\n')[0]}")
 
 # * Similarity Search: The whole reason we did this
@@ -164,5 +188,18 @@ print("\nFirst line of each result:")
 for i, doc in enumerate(result):
     first_line = doc.page_content.split('\n')[0]
     print(f"Result {i+1}: {first_line}")
+
+# * Example: Search for restaurants in a specific state by name
+print("\nSearching for restaurants in California:")
+california_results = vectorstore.similarity_search(
+    query="best seafood", 
+    k=3,
+    filter={"State Name": "California"}
+)
+
+for i, doc in enumerate(california_results):
+    restaurant = doc.metadata.get('Restaurant', 'Unknown')
+    city = doc.metadata.get('City', 'Unknown')
+    print(f"Result {i+1}: {restaurant} in {city}, California")
 
 
