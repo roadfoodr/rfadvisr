@@ -96,7 +96,13 @@ def post_process_summary(summary_text, search_results):
         
         # Create regex pattern to match whole words/phrases only
         # This avoids replacing parts of other words
-        pattern = r'(?<!\*\*)' + re.escape(name) + r'(?!\*\*)'
+        # Use word boundaries \b for single-word restaurant names
+        if len(name.split()) == 1:
+            # For single words, use word boundaries
+            pattern = r'(?<!\*\*)\b' + re.escape(name) + r'\b(?!\*\*)'
+        else:
+            # For phrases, use the existing pattern
+            pattern = r'(?<!\*\*)' + re.escape(name) + r'(?!\*\*)'
         
         # Check if the name appears in the text
         if re.search(pattern, summary_text, re.IGNORECASE):
@@ -117,7 +123,7 @@ def post_process_summary(summary_text, search_results):
                 first_occurrence[name] = False
                 
                 # Bold all subsequent occurrences
-                pattern = r'(?<!\*\*)' + re.escape(name) + r'(?!\*\*)'
+                # Use the same pattern for consistency
                 summary_text = re.sub(pattern, f"**{name}**", summary_text, flags=re.IGNORECASE)
             
     return summary_text
