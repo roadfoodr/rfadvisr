@@ -128,26 +128,57 @@ def post_process_summary(summary_text, search_results):
             
     return summary_text
 
-def generate_summary(query, full_content, search_results):
-    """Generate a summary article from the search results using an LLM"""
+def load_prompt_template(prompt_type="basic"):
+    """Load the prompt template from file
+    
+    Args:
+        prompt_type: Type of prompt to load ("basic" or "advanced")
+    
+    Returns:
+        The prompt template text or None if there was an error
+    """
+    filename = f"prompts/{prompt_type}_summary_prompt.txt"
+    try:
+        with open(filename, "r") as f:
+            return f.read()
+    except Exception as e:
+        st.error(f"Error reading prompt template {filename}: {str(e)}")
+        return None
+
+def reload_prompt_template():
+    """Clear the cache to reload the prompt template"""
+    # Clear the cache to force reload of prompt
+    st.cache_data.clear()
+    st.success("Prompt templates reloaded!")
+
+def generate_summary(query, full_content, search_results, prompt_type="basic"):
+    """Generate a summary article from the search results using an LLM
+    
+    Args:
+        query: The search query
+        full_content: The full content of the search results
+        search_results: The search results objects
+        prompt_type: Type of prompt to use ("basic" or "advanced")
+        
+    Returns:
+        The generated summary
+    """
+    # Read the prompt template from file
+    prompt_text = load_prompt_template(prompt_type)
+    
+    # Fallback to hardcoded prompt if file can't be read
+    if not prompt_text:
+        prompt_text = """
+        You are a food writer creating a summary article based on search results for "{query}".
+        
+        Here are the details of restaurants found in the search:
+        {full_content}
+                
+        Format your response with markdown.
+        """
+    
     # Create the prompt for the LLM
-    prompt_template = ChatPromptTemplate.from_template("""
-    You are a food writer creating a summary article based on search results for "{query}".
-    
-    Here are the details of restaurants found in the search:
-    {full_content}
-    
-    Create a summary article with:
-    1. A catchy title related to the search query
-    2. A bullet point list of each restaurant name and location in this EXACT format:
-       * Restaurant Name in City, State
-       (For example: * Hi Spot Café in Seattle, WA)
-       Do NOT use nested bullet points or separate the location onto a new line.
-    3. A consolidated article (no more than 3 paragraphs) that summarizes the key points about these restaurants,
-       highlighting what makes them special, their signature dishes, and any other interesting information.
-    
-    Format your response with markdown.
-    """)
+    prompt_template = ChatPromptTemplate.from_template(prompt_text)
     
     # Generate the summary
     chain = prompt_template | llm
@@ -216,6 +247,11 @@ st.sidebar.selectbox(
     on_change=update_example
 )
 
+# Add a button to reload the prompt template
+st.sidebar.header("Developer Options")
+if st.sidebar.button("Reload Prompt Template"):
+    reload_prompt_template()
+
 # Create a form for all search inputs
 with st.sidebar:
     with st.form(key="search_form"):
@@ -237,6 +273,12 @@ with st.sidebar:
         )
         
         generate_article_checkbox = st.checkbox("Generate summary article", value=True)
+        
+        # Only show this option if generate_article_checkbox is checked
+        show_both_summaries = False
+        if generate_article_checkbox:
+            show_both_summaries = st.checkbox("Show both basic and advanced summaries", value=True)
+        
         save_checkbox = st.checkbox("Save results to file", value=False)
         
         # Form submit button
@@ -257,18 +299,35 @@ if search_submitted:
                     # Extract full content for summarization
                     full_content = "\n\n".join([doc.page_content for doc in search_results])
                     
-                    # Generate summary
-                    summary = generate_summary(query_input, full_content, search_results)
+                    # Generate basic summary
+                    with st.spinner("Generating basic summary..."):
+                        basic_summary = generate_summary(query_input, full_content, search_results, prompt_type="basic")
                     
-                    # Display summary
-                    display_content = summary
-                    
-                    # Save to file if requested
-                    if save_checkbox:
-                        filename = save_results_to_file(query_input, summary)
-                        display_content += f"\n\n*Results saved to {filename}*"
-                    
-                    st.markdown(display_content)
+                    # Display basic summary
+                    if show_both_summaries:
+                        st.subheader("Basic Summary")
+                        st.markdown(basic_summary)
+                        
+                        # Generate and display advanced summary
+                        with st.spinner("Generating advanced summary..."):
+                            advanced_summary = generate_summary(query_input, full_content, search_results, prompt_type="advanced")
+                        
+                        st.subheader("Advanced Summary")
+                        st.markdown(advanced_summary)
+                        
+                        # Save both summaries if requested
+                        if save_checkbox:
+                            combined_content = f"BASIC SUMMARY:\n\n{basic_summary}\n\n{'='*50}\n\nADVANCED SUMMARY:\n\n{advanced_summary}"
+                            filename = save_results_to_file(query_input, combined_content)
+                            st.markdown(f"\n\n*Results saved to {filename}*")
+                    else:
+                        # Just display the basic summary without a subheader
+                        st.markdown(basic_summary)
+                        
+                        # Save only basic summary if requested
+                        if save_checkbox:
+                            filename = save_results_to_file(query_input, basic_summary)
+                            st.markdown(f"\n\n*Results saved to {filename}*")
                 else:
                     # Display detailed results
                     output = []
@@ -298,8 +357,12 @@ with st.expander("About this app"):
     
     The database contains restaurants from the Roadfood guide {EDITION} edition.
     
-    When generating a summary article, the app uses OpenAI's language model to create a concise
-    overview of the search results, including restaurant names, locations, and key highlights.
+    When generating a summary article, the app uses OpenAI's language model to create two different summaries:
+    
+    1. **Basic Summary**: A concise overview with a list of restaurants and key highlights.
+    2. **Advanced Summary**: A more detailed article with additional context and information.
+    
+    Both summaries include restaurant names, locations, and highlight what makes them special.
     """)
 
 # Run the app

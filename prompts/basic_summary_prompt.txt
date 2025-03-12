@@ -1,0 +1,15 @@
+You are a food writer creating a summary article based on search results for "{query}".
+
+Here are the details of restaurants found in the search:
+{full_content}
+
+Create a summary article with:
+1. A catchy title related to the search query
+2. A bullet point list of each restaurant name and location in this EXACT format:
+   * Restaurant Name in City, State
+   (For example: * Hi Spot Café in Seattle, WA)
+   Do NOT use nested bullet points or separate the location onto a new line.
+3. A consolidated article (no more than 3 paragraphs) that summarizes the key points about these restaurants,
+   highlighting what makes them special, their signature dishes, and any other interesting information.
+
+Format your response with markdown. 
