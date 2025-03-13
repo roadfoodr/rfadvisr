@@ -6,7 +6,7 @@ import random
 from openai import OpenAI
 
 # Configuration constants
-MODEL_ID = "ft:gpt-3.5-turbo-0613:personal::abc123"  # Replace with your actual model ID
+MODEL_ID = "ft:gpt-3.5-turbo-0125:personal:roadfood-10th:BAhLsi24"  # Replace with your actual model ID
 INPUT_CSV = 'data/Roadfood_10th_supplemented.csv'
 TRAIN_JSONL = 'data/roadfood_finetune_train.jsonl'  # Training set created by create_openai_finetune.py
 TEST_JSONL = 'data/roadfood_finetune_test.jsonl'  # Test set created by create_openai_finetune.py
@@ -14,7 +14,7 @@ PROMPT_COL = 'summary_q'
 COMPLETION_COL = 'content'
 NUM_SAMPLES = 5
 TEMPERATURE = 0.7
-USE_TEST_SET = True  # Set to True to use the test set instead of random samples
+USE_TEST_SET = False  # Set to True to use the test set instead of random samples
 
 def load_credentials():
     """Load API credentials from credentials.yml file"""
@@ -59,15 +59,17 @@ def test_with_jsonl(model_id, test_jsonl, num_samples=5, temperature=0.7):
         print(f"Prompt (truncated): {prompt[:150]}..." if len(prompt) > 150 else f"Prompt: {prompt}")
         
         try:
-            # Call the fine-tuned model
-            response = client.completions.create(
+            # Call the fine-tuned model using chat completions endpoint
+            response = client.chat.completions.create(
                 model=model_id,
-                prompt=prompt,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
                 max_tokens=100,
                 temperature=temperature
             )
             
-            completion = response.choices[0].text.strip()
+            completion = response.choices[0].message.content.strip()
             print(f"\nModel response: {completion}")
             print(f"Expected completion: {expected}")
             
@@ -106,15 +108,17 @@ def test_with_sample(model_id, input_csv, prompt_col, num_samples=5, temperature
         print(f"Prompt (truncated): {prompt[:150]}..." if len(prompt) > 150 else f"Prompt: {prompt}")
         
         try:
-            # Call the fine-tuned model
-            response = client.completions.create(
+            # Call the fine-tuned model using chat completions endpoint
+            response = client.chat.completions.create(
                 model=model_id,
-                prompt=prompt,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
                 max_tokens=100,
                 temperature=temperature
             )
             
-            completion = response.choices[0].text.strip()
+            completion = response.choices[0].message.content.strip()
             print(f"\nModel response: {completion}")
             
             # If we have the actual completion in the dataset, show it for comparison
@@ -132,15 +136,17 @@ def test_with_custom_prompt(model_id, prompt, temperature=0.7):
     print(f"Using custom prompt: {prompt[:150]}..." if len(prompt) > 150 else f"Using custom prompt: {prompt}")
     
     try:
-        # Call the fine-tuned model
-        response = client.completions.create(
+        # Call the fine-tuned model using chat completions endpoint
+        response = client.chat.completions.create(
             model=model_id,
-            prompt=prompt,
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
             max_tokens=100,
             temperature=temperature
         )
         
-        completion = response.choices[0].text.strip()
+        completion = response.choices[0].message.content.strip()
         print(f"\nModel response: {completion}")
         
     except Exception as e:

@@ -19,6 +19,7 @@ SAMPLE_SIZE = 250
 TEST_SIZE = 0.2  # 20% of data for testing
 CREATE_ONLY = True  # Just create the JSONL file, don't submit job
 DEFAULT_SYSTEM_PROMPT = "Assume the role of a writer for the 'Roadfood' series. Generate a compelling summary of recommended restaurants."
+MODEL_SUFFIX = "roadfood-10th"  # Descriptive name for the fine-tuned model
 
 def load_credentials():
     """Load API credentials from credentials.yml file"""
@@ -184,7 +185,7 @@ def upload_file(file_path):
     print(f"File uploaded with ID: {file_id}")
     return file_id
 
-def create_finetune_job(training_file_id, validation_file_id=None, model="gpt-3.5-turbo"):
+def create_finetune_job(training_file_id, validation_file_id=None, model="gpt-3.5-turbo", suffix=None):
     """Create a fine-tuning job with the uploaded files"""
     client = OpenAI()
     
@@ -200,6 +201,11 @@ def create_finetune_job(training_file_id, validation_file_id=None, model="gpt-3.
     if validation_file_id:
         job_params["validation_file"] = validation_file_id
         print(f"Using validation file {validation_file_id}")
+    
+    # Add suffix if provided
+    if suffix:
+        job_params["suffix"] = suffix
+        print(f"Using model suffix: {suffix}")
     
     # Create the job
     response = client.fine_tuning.jobs.create(**job_params)
@@ -265,7 +271,8 @@ def main():
     test_file_id = upload_file(test_jsonl)
     
     # Create fine-tuning job with both training and validation files
-    job_id = create_finetune_job(train_file_id, test_file_id, BASE_MODEL)
+    print(f"Creating fine-tuning job with suffix: {MODEL_SUFFIX}")
+    job_id = create_finetune_job(train_file_id, test_file_id, BASE_MODEL, suffix=MODEL_SUFFIX)
     
     # Check initial status
     status = check_finetune_status(job_id)
