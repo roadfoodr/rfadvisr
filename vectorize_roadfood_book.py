@@ -35,9 +35,9 @@ state_mapping = {
 # Read only specific columns from the CSV
 columns_to_read = ['ID', 'Restaurant', 'URL', 'Address', 'City', 'State', 'Region', 
                    'phone', 'hours', 'Crossout', 'Honor Roll', 'Recommend', 
-                   'long', 'lat', 'geohash', 'content']
+                   'long', 'lat', 'geohash', 'sig_item', 'content']
 
-df = pd.read_csv('data/Roadfood_10th_reprocessed_final.csv', usecols=columns_to_read)
+df = pd.read_csv('data/Roadfood_10th_supplemented.csv', usecols=columns_to_read)
 
 # Filter out records where Crossout is 'y'
 print(f"Total records before filtering: {len(df)}")
@@ -89,9 +89,10 @@ for doc in documents:
     city = doc.metadata.get('City', 'Unknown City')
     state = doc.metadata.get('State', 'Unknown State')
     state_name = doc.metadata.get('State Name', 'Unknown State')
+    sig_item = doc.metadata.get('sig_item', 'Unknown Item')
     
     # Prepend the restaurant name, city and state to the page content
-    updated_content = f"Restaurant: {restaurant_name}\nLocation: {city}, {state_name}\n\n{doc.page_content}"
+    updated_content = f"Restaurant: {restaurant_name}\nLocation: {city}, {state_name}\nSignature Item: {sig_item}\n\n{doc.page_content}"
     
     # Update the document's page content
     doc.page_content = updated_content
