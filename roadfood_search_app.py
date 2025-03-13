@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema import Document
 import re
+from pathlib import Path
 
 # Constants
 EDITION = '10th'
@@ -21,7 +22,15 @@ st.set_page_config(
 )
 
 # OPENAI API SETUP
-os.environ['OPENAI_API_KEY'] = yaml.safe_load(open('credentials.yml'))['openai']
+# Check if running in Modal (environment variable will be set) or locally (use credentials.yml)
+if "OPENAI_API_KEY" not in os.environ:
+    try:
+        # Running locally, load from credentials.yml
+        os.environ['OPENAI_API_KEY'] = yaml.safe_load(open('credentials.yml'))['openai']
+    except Exception as e:
+        st.error(f"Error loading OpenAI API key: {str(e)}")
+        st.stop()
+
 MODEL_EMBEDDING = 'text-embedding-ada-002'
 LLM_MODEL = 'gpt-3.5-turbo'
 # LLM_MODEL = 'gpt-4o-mini'
@@ -32,7 +41,6 @@ FINE_TUNED_MODEL = 'ft:gpt-3.5-turbo-0125:personal:roadfood-10th:BAhLsi24'  # Re
 def get_embedding_function():
     return OpenAIEmbeddings(
         model=MODEL_EMBEDDING,
-        
     )
 
 # Initialize LLM
@@ -51,14 +59,24 @@ def get_llm(use_fine_tuned=False):
     else:
         return ChatOpenAI(model=LLM_MODEL, temperature=0.7)
 
+# Determine the base directory for data files
+def get_base_dir():
+    """Get the base directory for data files based on environment"""
+    # Check if running in Modal
+    if os.path.exists("/root/data"):
+        return Path("/root")
+    else:
+        return Path(".")
+
 # Load the existing Chroma database
 @st.cache_resource
 def get_vectorstore():
     embedding_function = get_embedding_function()
-    persist_directory = f"./data/chroma_rf{EDITION}"
+    base_dir = get_base_dir()
+    persist_directory = base_dir / f"data/chroma_rf{EDITION}"
     return Chroma(
         embedding_function=embedding_function,
-        persist_directory=persist_directory
+        persist_directory=str(persist_directory)
     )
 
 # Get cached resources
@@ -243,7 +261,8 @@ def load_prompt_template(prompt_type="basic"):
     Returns:
         The prompt template text or None if there was an error
     """
-    filename = f"prompts/{prompt_type}_summary_prompt.txt"
+    base_dir = get_base_dir()
+    filename = base_dir / f"prompts/{prompt_type}_summary_prompt.txt"
     try:
         with open(filename, "r") as f:
             return f.read()
