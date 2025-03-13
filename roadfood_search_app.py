@@ -24,6 +24,7 @@ st.set_page_config(
 os.environ['OPENAI_API_KEY'] = yaml.safe_load(open('credentials.yml'))['openai']
 MODEL_EMBEDDING = 'text-embedding-ada-002'
 LLM_MODEL = 'gpt-3.5-turbo'
+# LLM_MODEL = 'gpt-4o-mini'
 
 # Initialize embedding function
 @st.cache_resource
@@ -143,84 +144,82 @@ def standardize_summary_headline(summary_text):
     Returns:
         Processed summary text with standardized headings
     """
-    # Split the text into lines
+    # Split the text into lines for processing
     lines = summary_text.split('\n')
     
-    # Find the first bullet point (line starting with * or -)
+    # Skip any empty lines at the beginning
+    start_index = 0
+    while start_index < len(lines) and not lines[start_index].strip():
+        start_index += 1
+    
+    # If we've reached the end, return the original text
+    if start_index >= len(lines):
+        return summary_text
+    
+    # Find the first bullet point or empty line after non-empty content
     bullet_index = -1
-    for i, line in enumerate(lines):
-        if line.strip().startswith('*') or line.strip().startswith('-'):
+    for i in range(start_index + 1, len(lines)):
+        line = lines[i].strip()
+        # If this is a bullet point, we've found our separator
+        if line.startswith('*') or line.startswith('-'):
             bullet_index = i
             break
-    
-    # If no bullet points found, look for a blank line instead
-    if bullet_index == -1:
-        for i, line in enumerate(lines):
-            if i > 0 and not line.strip():
+        # If this is an empty line after we've seen content, it might be our separator
+        if not line and i > start_index:
+            # Check if the next line exists and is not empty (to avoid treating paragraph breaks as separators)
+            if i + 1 < len(lines) and lines[i + 1].strip():
                 bullet_index = i
                 break
     
-    # If we found a bullet point or blank line, process the title
-    if bullet_index > 0:
-        # Get all content before the bullet list as the title
-        title_lines = lines[:bullet_index]
-        
-        # Join the title lines and clean them up
-        title = ' '.join([line.strip() for line in title_lines if line.strip()])
-        
-        # Clean up the title - remove any markdown formatting
-        # Remove markdown headers
+    # If we didn't find a bullet point or suitable empty line, just use the first line as the title
+    if bullet_index == -1:
+        # Extract and clean the first non-empty line as the title
+        title = lines[start_index].strip()
+        # Remove any markdown headers
         title = re.sub(r'^#+\s+', '', title)
         # Remove bold markers
         title = re.sub(r'\*\*', '', title)
         # Remove common title prefixes
         title = re.sub(r'^(?:Title:|Catchy Title:|Headline:)\s*', '', title, flags=re.IGNORECASE)
         
-        # Create the new title as an h3 header
-        new_title = f"### {title.strip()}"
+        # Replace the first line with the cleaned h3 title
+        if title:  # Only if we have actual content
+            lines[start_index] = f"### {title}"
         
-        # Replace the original title lines with the new title
-        processed_lines = [new_title, '']  # Add an empty line after the title
-        processed_lines.extend(lines[bullet_index:])  # Add the rest of the content unchanged
+        # Convert any other h1 or h2 headers to h3
+        for i in range(start_index + 1, len(lines)):
+            if lines[i].strip().startswith('# ') or lines[i].strip().startswith('## '):
+                lines[i] = re.sub(r'^#+\s+', '### ', lines[i])
         
-        return '\n'.join(processed_lines)
+        return '\n'.join(lines)
     
-    # If no structure was found, just use the first non-empty line as the title
-    else:
-        # Find the first non-empty line
-        first_line_index = -1
-        for i, line in enumerate(lines):
-            if line.strip():
-                first_line_index = i
-                break
+    # We found a separator, so extract everything before it as the title
+    title_lines = [line for line in lines[start_index:bullet_index] if line.strip()]
+    
+    # If we have title lines, process them
+    if title_lines:
+        # Join all title lines into a single string
+        title_text = ' '.join([line.strip() for line in title_lines])
         
-        if first_line_index >= 0:
-            # Extract the title
-            title = lines[first_line_index].strip()
-            
-            # Clean up the title
-            # Remove markdown headers
-            title = re.sub(r'^#+\s+', '', title)
-            # Remove bold markers
-            title = re.sub(r'\*\*', '', title)
-            # Remove common title prefixes
-            title = re.sub(r'^(?:Title:|Catchy Title:|Headline:)\s*', '', title, flags=re.IGNORECASE)
-            
-            # Create the new title as an h3 header
-            new_title = f"### {title.strip()}"
-            
-            # Replace the original title line
-            lines[first_line_index] = new_title
-            
-            # Convert any other h1 or h2 headers to h3
-            for i in range(first_line_index + 1, len(lines)):
-                if lines[i].strip().startswith('# ') or lines[i].strip().startswith('## '):
-                    lines[i] = re.sub(r'^#+\s+', '### ', lines[i])
-            
-            return '\n'.join(lines)
+        # Clean up the title
+        # Remove any markdown headers
+        title_text = re.sub(r'^#+\s+', '', title_text)
+        # Remove bold markers
+        title_text = re.sub(r'\*\*', '', title_text)
+        # Remove common title prefixes
+        title_text = re.sub(r'^(?:Title:|Catchy Title:|Headline:)\s*', '', title_text, flags=re.IGNORECASE)
         
-        # If no non-empty lines found, return the original text
-        return summary_text
+        # Create the new title as an h3 header
+        new_title = f"### {title_text.strip()}"
+        
+        # Build the new content with the standardized title
+        result = [new_title, '']  # Title followed by blank line
+        result.extend(lines[bullet_index:])  # Add the rest unchanged
+        
+        return '\n'.join(result)
+    
+    # If we didn't find any title content, return the original text
+    return summary_text
 
 def load_prompt_template(prompt_type="basic"):
     """Load the prompt template from file
