@@ -128,6 +128,100 @@ def post_process_summary(summary_text, search_results):
             
     return summary_text
 
+def standardize_summary_headline(summary_text):
+    """
+    Standardize headline formatting in summaries to ensure consistent heading levels.
+    
+    This function:
+    1. Identifies the title (content before the bullet list)
+    2. Converts the title to an h3 header, removing any formatting or prefixes
+    3. Leaves the rest of the content unchanged
+    
+    Args:
+        summary_text: The text of the summary to process
+        
+    Returns:
+        Processed summary text with standardized headings
+    """
+    # Split the text into lines
+    lines = summary_text.split('\n')
+    
+    # Find the first bullet point (line starting with * or -)
+    bullet_index = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith('*') or line.strip().startswith('-'):
+            bullet_index = i
+            break
+    
+    # If no bullet points found, look for a blank line instead
+    if bullet_index == -1:
+        for i, line in enumerate(lines):
+            if i > 0 and not line.strip():
+                bullet_index = i
+                break
+    
+    # If we found a bullet point or blank line, process the title
+    if bullet_index > 0:
+        # Get all content before the bullet list as the title
+        title_lines = lines[:bullet_index]
+        
+        # Join the title lines and clean them up
+        title = ' '.join([line.strip() for line in title_lines if line.strip()])
+        
+        # Clean up the title - remove any markdown formatting
+        # Remove markdown headers
+        title = re.sub(r'^#+\s+', '', title)
+        # Remove bold markers
+        title = re.sub(r'\*\*', '', title)
+        # Remove common title prefixes
+        title = re.sub(r'^(?:Title:|Catchy Title:|Headline:)\s*', '', title, flags=re.IGNORECASE)
+        
+        # Create the new title as an h3 header
+        new_title = f"### {title.strip()}"
+        
+        # Replace the original title lines with the new title
+        processed_lines = [new_title, '']  # Add an empty line after the title
+        processed_lines.extend(lines[bullet_index:])  # Add the rest of the content unchanged
+        
+        return '\n'.join(processed_lines)
+    
+    # If no structure was found, just use the first non-empty line as the title
+    else:
+        # Find the first non-empty line
+        first_line_index = -1
+        for i, line in enumerate(lines):
+            if line.strip():
+                first_line_index = i
+                break
+        
+        if first_line_index >= 0:
+            # Extract the title
+            title = lines[first_line_index].strip()
+            
+            # Clean up the title
+            # Remove markdown headers
+            title = re.sub(r'^#+\s+', '', title)
+            # Remove bold markers
+            title = re.sub(r'\*\*', '', title)
+            # Remove common title prefixes
+            title = re.sub(r'^(?:Title:|Catchy Title:|Headline:)\s*', '', title, flags=re.IGNORECASE)
+            
+            # Create the new title as an h3 header
+            new_title = f"### {title.strip()}"
+            
+            # Replace the original title line
+            lines[first_line_index] = new_title
+            
+            # Convert any other h1 or h2 headers to h3
+            for i in range(first_line_index + 1, len(lines)):
+                if lines[i].strip().startswith('# ') or lines[i].strip().startswith('## '):
+                    lines[i] = re.sub(r'^#+\s+', '### ', lines[i])
+            
+            return '\n'.join(lines)
+        
+        # If no non-empty lines found, return the original text
+        return summary_text
+
 def load_prompt_template(prompt_type="basic"):
     """Load the prompt template from file
     
@@ -305,15 +399,23 @@ if search_submitted:
                     
                     # Display basic summary
                     if show_both_summaries:
-                        st.subheader("Basic Summary")
-                        st.markdown(basic_summary)
+                        # Use header (h2) for consistency between summary types
+                        st.header("Basic Summary")
+                        
+                        # Process the summary to ensure consistent headline sizes
+                        processed_basic_summary = standardize_summary_headline(basic_summary)
+                        st.markdown(processed_basic_summary)
                         
                         # Generate and display advanced summary
                         with st.spinner("Generating advanced summary..."):
                             advanced_summary = generate_summary(query_input, full_content, search_results, prompt_type="advanced")
                         
-                        st.subheader("Advanced Summary")
-                        st.markdown(advanced_summary)
+                        # Use header (h2) for consistency between summary types
+                        st.header("Advanced Summary")
+                        
+                        # Process the advanced summary to ensure consistent headline sizes
+                        processed_advanced_summary = standardize_summary_headline(advanced_summary)
+                        st.markdown(processed_advanced_summary)
                         
                         # Save both summaries if requested
                         if save_checkbox:
@@ -321,8 +423,10 @@ if search_submitted:
                             filename = save_results_to_file(query_input, combined_content)
                             st.markdown(f"\n\n*Results saved to {filename}*")
                     else:
-                        # Just display the basic summary without a subheader
-                        st.markdown(basic_summary)
+                        # Just display the basic summary without a section header
+                        # Process the summary to ensure consistent headline sizes
+                        processed_basic_summary = standardize_summary_headline(basic_summary)
+                        st.markdown(processed_basic_summary)
                         
                         # Save only basic summary if requested
                         if save_checkbox:
