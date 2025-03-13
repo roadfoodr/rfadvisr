@@ -18,6 +18,7 @@ BASE_MODEL = 'gpt-3.5-turbo'
 SAMPLE_SIZE = 250
 TEST_SIZE = 0.2  # 20% of data for testing
 CREATE_ONLY = True  # Just create the JSONL file, don't submit job
+DEFAULT_SYSTEM_PROMPT = "Assume the role of a writer for the 'Roadfood' series. Generate a compelling summary of recommended restaurants."
 
 def load_credentials():
     """Load API credentials from credentials.yml file"""
@@ -29,12 +30,66 @@ def load_credentials():
         print(f"Error loading credentials: {str(e)}")
         return False
 
+def check_existing_jsonl_files(train_jsonl_path, test_jsonl_path, expected_total_samples, test_size):
+    """
+    Check if JSONL files already exist and have the expected number of entries.
+    
+    Args:
+        train_jsonl_path: Path to the training JSONL file
+        test_jsonl_path: Path to the test JSONL file
+        expected_total_samples: Expected total number of samples (train + test)
+        test_size: Proportion of samples that should be in the test set
+        
+    Returns:
+        bool: True if files exist with expected counts, False otherwise
+    """
+    # Check if both files exist
+    if not (os.path.exists(train_jsonl_path) and os.path.exists(test_jsonl_path)):
+        print("One or both JSONL files don't exist.")
+        return False
+    
+    # Calculate expected counts
+    expected_train_count = int(expected_total_samples * (1 - test_size))
+    expected_test_count = expected_total_samples - expected_train_count
+    
+    # Count lines in training file
+    train_count = 0
+    try:
+        with open(train_jsonl_path, 'r', encoding='utf-8') as f:
+            for _ in f:
+                train_count += 1
+    except Exception as e:
+        print(f"Error reading training file: {str(e)}")
+        return False
+    
+    # Count lines in test file
+    test_count = 0
+    try:
+        with open(test_jsonl_path, 'r', encoding='utf-8') as f:
+            for _ in f:
+                test_count += 1
+    except Exception as e:
+        print(f"Error reading test file: {str(e)}")
+        return False
+    
+    # Check if counts match expected
+    if abs(train_count - expected_train_count) <= 1 and abs(test_count - expected_test_count) <= 1:
+        print(f"JSONL files already exist with expected counts:")
+        print(f"  - Training: {train_count} (expected ~{expected_train_count})")
+        print(f"  - Test: {test_count} (expected ~{expected_test_count})")
+        return True
+    else:
+        print(f"JSONL files exist but don't have expected counts:")
+        print(f"  - Training: {train_count} (expected ~{expected_train_count})")
+        print(f"  - Test: {test_count} (expected ~{expected_test_count})")
+        return False
+
 def create_finetune_jsonl(input_csv, output_train_jsonl, output_test_jsonl, prompt_col, completion_col, sample_size, test_size=0.2):
     """
     Create JSONL files for fine-tuning from CSV data, with train/test split.
     
-    For single-turn completions, we use the format:
-    {"prompt": "<prompt text>", "completion": "<ideal generated text>"}
+    For chat completions API, we use the format:
+    {"messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
     """
     print(f"Reading data from {input_csv}...")
     df = pd.read_csv(input_csv)
@@ -66,39 +121,49 @@ def create_finetune_jsonl(input_csv, output_train_jsonl, output_test_jsonl, prom
         df_sampled = df_filtered
         print(f"Using all {len(df_filtered)} available rows (less than requested {sample_size})")
     
+    # Use the default system prompt
+    system_prompt = DEFAULT_SYSTEM_PROMPT
+    print(f"Using system prompt: '{system_prompt}'")
+    
+    # Format data for chat completions API
+    formatted_data = []
+    for _, row in df_sampled.iterrows():
+        # Create the messages array with system, user, and assistant roles
+        example = {
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user", 
+                    "content": row[prompt_col]
+                },
+                {
+                    "role": "assistant",
+                    "content": row[completion_col]
+                }
+            ]
+        }
+        formatted_data.append(example)
+    
     # Split into training and test sets
-    train_df, test_df = train_test_split(df_sampled, test_size=test_size, random_state=42)
-    print(f"Split into {len(train_df)} training examples and {len(test_df)} test examples")
+    train_data, test_data = train_test_split(formatted_data, test_size=test_size, random_state=42)
+    print(f"Split into {len(train_data)} training examples and {len(test_data)} test examples")
     
     # Create training JSONL file
-    print(f"Creating training data with {len(train_df)} examples...")
+    print(f"Creating training data with {len(train_data)} examples...")
     with open(output_train_jsonl, 'w', encoding='utf-8') as f:
-        for _, row in train_df.iterrows():
-            # For completion fine-tuning, we need to add a space and end token
-            completion = " " + row[completion_col] + "\n"
-            
-            # Create the JSON object and write to file
-            json_obj = {
-                "prompt": row[prompt_col],
-                "completion": completion
-            }
-            f.write(json.dumps(json_obj) + '\n')
+        for item in train_data:
+            f.write(json.dumps(item) + '\n')
     
     print(f"Created training JSONL file at {output_train_jsonl}")
     
     # Create test JSONL file
-    print(f"Creating test data with {len(test_df)} examples...")
+    print(f"Creating test data with {len(test_data)} examples...")
     with open(output_test_jsonl, 'w', encoding='utf-8') as f:
-        for _, row in test_df.iterrows():
-            # For completion fine-tuning, we need to add a space and end token
-            completion = " " + row[completion_col] + "\n"
-            
-            # Create the JSON object and write to file
-            json_obj = {
-                "prompt": row[prompt_col],
-                "completion": completion
-            }
-            f.write(json.dumps(json_obj) + '\n')
+        for item in test_data:
+            f.write(json.dumps(item) + '\n')
     
     print(f"Created test JSONL file at {output_test_jsonl}")
     
@@ -168,19 +233,31 @@ def main():
         print("Failed to load credentials. Exiting.")
         return
     
-    # Create JSONL files with train/test split
-    train_jsonl, test_jsonl = create_finetune_jsonl(
-        INPUT_CSV, 
-        OUTPUT_TRAIN_JSONL, 
+    # Check if JSONL files already exist with expected counts
+    files_exist = check_existing_jsonl_files(
+        OUTPUT_TRAIN_JSONL,
         OUTPUT_TEST_JSONL,
-        PROMPT_COL, 
-        COMPLETION_COL,
         SAMPLE_SIZE,
         TEST_SIZE
     )
     
+    if files_exist:
+        print("Using existing JSONL files.")
+        train_jsonl, test_jsonl = OUTPUT_TRAIN_JSONL, OUTPUT_TEST_JSONL
+    else:
+        # Create JSONL files with train/test split
+        train_jsonl, test_jsonl = create_finetune_jsonl(
+            INPUT_CSV, 
+            OUTPUT_TRAIN_JSONL, 
+            OUTPUT_TEST_JSONL,
+            PROMPT_COL, 
+            COMPLETION_COL,
+            SAMPLE_SIZE,
+            TEST_SIZE
+        )
+    
     if CREATE_ONLY:
-        print("JSONL files created. Exiting without creating fine-tuning job.")
+        print("JSONL files ready. Exiting without creating fine-tuning job.")
         return
     
     # Upload files to OpenAI
