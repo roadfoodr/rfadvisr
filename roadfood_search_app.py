@@ -25,12 +25,14 @@ os.environ['OPENAI_API_KEY'] = yaml.safe_load(open('credentials.yml'))['openai']
 MODEL_EMBEDDING = 'text-embedding-ada-002'
 LLM_MODEL = 'gpt-3.5-turbo'
 # LLM_MODEL = 'gpt-4o-mini'
+FINE_TUNED_MODEL = 'ft:gpt-3.5-turbo-0125:personal:roadfood-10th:BAhLsi24'  # Replace with your actual fine-tuned model ID
 
 # Initialize embedding function
 @st.cache_resource
 def get_embedding_function():
     return OpenAIEmbeddings(
         model=MODEL_EMBEDDING,
+        
     )
 
 # Initialize LLM
@@ -298,17 +300,11 @@ def perform_search(query, num_results):
         st.error(f"Error during search: {str(e)}")
         return []
 
-def save_results_to_file(query, content):
-    """Save results to a file and return the filename"""
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"data/search_results_{timestamp}.txt"
-    os.makedirs(os.path.dirname(filename), exist_ok=True)  # Ensure directory exists
-    
-    with open(filename, "w") as f:
-        f.write(f"Search query: {query}\n\n")
-        f.write(content)
-    
-    return filename
+def prepare_download_content(query, content):
+    """Prepare content for download without saving to disk"""
+    # Format the content for download
+    formatted_content = f"Search query: {query}\n\n{content}"
+    return formatted_content
 
 # Create Streamlit interface
 st.title(f"Roadfood {EDITION} Edition Restaurant Search")
@@ -340,11 +336,6 @@ st.sidebar.selectbox(
     on_change=update_example
 )
 
-# Add a button to reload the prompt template
-st.sidebar.header("Developer Options")
-if st.sidebar.button("Reload Prompt Template"):
-    reload_prompt_template()
-
 # Create a form for all search inputs
 with st.sidebar:
     with st.form(key="search_form"):
@@ -368,11 +359,21 @@ with st.sidebar:
         generate_article_checkbox = st.checkbox("Generate summary article", value=True)
         
         # Only show this option if generate_article_checkbox is checked
-        show_both_summaries = False
+        summary_type = "All"
         if generate_article_checkbox:
-            show_both_summaries = st.checkbox("Show both basic and advanced summaries", value=True)
+            summary_type = st.selectbox(
+                "Summary type",
+                [
+                    "All",
+                    "Basic prompt / base model",
+                    "Advanced prompt / base model",
+                    "Basic prompt / fine-tuned model",
+                    "Advanced prompt / fine-tuned model"
+                ],
+                index=0  # Default to "All"
+            )
         
-        save_checkbox = st.checkbox("Save results to file", value=False)
+        save_checkbox = st.checkbox("Enable download option", value=False)
         
         # Form submit button
         search_submitted = st.form_submit_button("Search")
@@ -396,8 +397,8 @@ if search_submitted:
                     with st.spinner("Generating basic summary..."):
                         basic_summary = generate_summary(query_input, full_content, search_results, prompt_type="basic")
                     
-                    # Display basic summary
-                    if show_both_summaries:
+                    # Display summaries based on selection
+                    if summary_type == "All":
                         # Use header (h2) for consistency between summary types
                         st.header("Basic Summary")
                         
@@ -419,8 +420,15 @@ if search_submitted:
                         # Save both summaries if requested
                         if save_checkbox:
                             combined_content = f"BASIC SUMMARY:\n\n{basic_summary}\n\n{'='*50}\n\nADVANCED SUMMARY:\n\n{advanced_summary}"
-                            filename = save_results_to_file(query_input, combined_content)
-                            st.markdown(f"\n\n*Results saved to {filename}*")
+                            download_content = prepare_download_content(query_input, combined_content)
+                            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                            filename = f"search_results_{timestamp}.txt"
+                            st.download_button(
+                                label="Download Results",
+                                data=download_content,
+                                file_name=filename,
+                                mime="text/plain"
+                            )
                     else:
                         # Just display the basic summary without a section header
                         # Process the summary to ensure consistent headline sizes
@@ -429,8 +437,15 @@ if search_submitted:
                         
                         # Save only basic summary if requested
                         if save_checkbox:
-                            filename = save_results_to_file(query_input, basic_summary)
-                            st.markdown(f"\n\n*Results saved to {filename}*")
+                            download_content = prepare_download_content(query_input, basic_summary)
+                            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                            filename = f"search_results_{timestamp}.txt"
+                            st.download_button(
+                                label="Download Results",
+                                data=download_content,
+                                file_name=filename,
+                                mime="text/plain"
+                            )
                 else:
                     # Display detailed results
                     output = []
@@ -447,8 +462,14 @@ if search_submitted:
                             detailed_content += f"{doc.page_content}\n"
                             detailed_content += "-" * 50 + "\n\n"
                         
-                        filename = save_results_to_file(query_input, detailed_content)
-                        display_content += f"\n\n*Results saved to {filename}*"
+                        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"search_results_{timestamp}.txt"
+                        st.download_button(
+                            label="Download Results",
+                            data=detailed_content,
+                            file_name=filename,
+                            mime="text/plain"
+                        )
                     
                     st.markdown(display_content)
 
@@ -467,6 +488,12 @@ with st.expander("About this app"):
     
     Both summaries include restaurant names, locations, and highlight what makes them special.
     """)
+
+# Add developer options in a collapsed expander at the bottom of the sidebar
+with st.sidebar:
+    with st.expander("Developer Options", expanded=False):
+        if st.button("Reload Prompt Template"):
+            reload_prompt_template()
 
 # Run the app
 # Note: No need for if __name__ == "__main__" in Streamlit
