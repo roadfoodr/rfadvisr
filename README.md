@@ -26,4 +26,20 @@ Live demo: https://roadfoodr--roadfood-search-app-run.modal.run/
 
 - The app uses a fine-tuned GPT-3.5 model for specialized Roadfood summaries
 - The Chroma database contains vector embeddings of restaurant descriptions for RAG purposes
-- The app is configured to work both locally and in the Modal cloud environment 
+- The app is configured to work both locally and in the Modal cloud environment
+
+## Roadmap
+
+```mermaid
+graph TD
+  A[User Query] --> B[LLM Guardrail Check]
+  B --> C[Cache Lookup]
+  C -->|Hit| Z[Return Cached Result]
+  C -->|Miss| D[LLM Query Analysis]
+  D --> E[Tool Calls<br>for specialized search]
+  E --> F[Pre-filter corpus<br>~1,000 records]
+  F --> G[Semantic Search<br>on Filtered Subset]
+  G --> H[Re-rank by<br>Quality Signals]
+  H --> I[RAG + LLM for<br>Narrative Generation]
+  I --> J[Final Response to User]
+```
