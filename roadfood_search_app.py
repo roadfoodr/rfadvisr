@@ -345,7 +345,8 @@ def extract_filters_node(state: FilterGenerationState) -> Dict:
     print(f"--- (Stub) EXTRACTING FILTERS for query: {state['query']} ---")
     query = state['query'].lower()
     available_metadata = state['available_metadata']
-    extracted = {}
+    # Change: Store conditions as a list
+    conditions = [] # List to hold individual filter dicts
 
     # --- State Extraction ---
     if "State" in available_metadata:
@@ -362,7 +363,8 @@ def extract_filters_node(state: FilterGenerationState) -> Dict:
         # Add more states or use regex later...
 
         if found_states:
-            extracted["State"] = {"$in": found_states}
+            # Change: Append state condition to the list
+            conditions.append({"State": {"$in": found_states}})
 
     # --- Region Extraction ---
     if "Region" in available_metadata:
@@ -379,26 +381,42 @@ def extract_filters_node(state: FilterGenerationState) -> Dict:
         # Add more regions...
 
         if found_regions:
-            extracted["Region"] = {"$in": found_regions}
+            # Change: Append region condition to the list
+            conditions.append({"Region": {"$in": found_regions}})
 
+    # Add more extraction logic for other fields...
 
-    print(f"  > (Stub) Extracted: {extracted}")
+    print(f"  > (Stub) Extracted Conditions: {conditions}")
 
-    # Ensure extracted_filters exists and update it
-    current_filters = state.get('extracted_filters', {})
-    current_filters.update(extracted)
-    return {"extracted_filters": current_filters}
+    # Change: Update state with the list of conditions
+    # We'll combine them with $or/$and in the format_filter_node
+    # Ensure extracted_filters exists (as a list now) and update it
+    # For simplicity in the stub, we'll just overwrite. A real implementation might append.
+    return {"extracted_filters": conditions} # Return the list
 
 def format_filter_node(state: FilterGenerationState) -> Dict:
     """
-    STUB: Formats the extracted dictionary into the final ChromaDB 'where' clause.
-    (Later: Could handle more complex logic like $and/$or or validation)
+    STUB: Formats the extracted list of conditions into the final ChromaDB 'where' clause.
+    Currently assumes OR logic if multiple conditions exist.
+    (Later: Could handle more complex logic like $and/$or or validation based on analysis)
     """
     print(f"--- (Stub) FORMATTING FILTERS ---")
-    final_filter = state.get('extracted_filters', {})
-    print(f"  > (Stub) Final Filter: {final_filter}")
-    # In this simple case, the format is likely already correct.
-    # We just ensure the state reflects the potentially updated dict.
+    conditions = state.get('extracted_filters', []) # Expecting a list now
+    final_filter = {}
+
+    if not conditions:
+        print("  > (Stub) No conditions to format.")
+        final_filter = {} # Return empty dict if no filters
+    elif len(conditions) == 1:
+        print(f"  > (Stub) Single condition: {conditions[0]}")
+        final_filter = conditions[0] # Use the single condition directly
+    else:
+        # Change: Combine multiple conditions using $or (stub assumption)
+        # A real implementation would need logic to decide between $or and $and
+        final_filter = {"$or": conditions}
+        print(f"  > (Stub) Combined conditions with $or: {final_filter}")
+
+    # Update the state with the final formatted filter dictionary
     return {"extracted_filters": final_filter}
 
 # --- End Filter Generation Graph Nodes ---
