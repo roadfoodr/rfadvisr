@@ -34,7 +34,6 @@ if "OPENAI_API_KEY" not in os.environ:
 MODEL_EMBEDDING = 'text-embedding-ada-002'
 LLM_MODEL = 'gpt-3.5-turbo'
 # LLM_MODEL = 'gpt-4o-mini'
-FINE_TUNED_MODEL = 'ft:gpt-3.5-turbo-0125:personal:roadfood-10th:BAhLsi24'  # Replace with your actual fine-tuned model ID
 
 # Initialize embedding function
 @st.cache_resource
@@ -45,19 +44,10 @@ def get_embedding_function():
 
 # Initialize LLM
 @st.cache_resource
-def get_llm(use_fine_tuned=False):
-    """Get the appropriate LLM model based on the selection
-    
-    Args:
-        use_fine_tuned: Whether to use the fine-tuned model
-        
-    Returns:
-        The appropriate LLM instance
-    """
-    if use_fine_tuned:
-        return ChatOpenAI(model=FINE_TUNED_MODEL, temperature=0.7)
-    else:
-        return ChatOpenAI(model=LLM_MODEL, temperature=0.7)
+def get_llm():
+    """Get the base LLM model"""
+    # Always return the base model
+    return ChatOpenAI(model=LLM_MODEL, temperature=0.7)
 
 # Determine the base directory for data files
 def get_base_dir():
@@ -81,7 +71,7 @@ def get_vectorstore():
 
 # Get cached resources
 embedding_function = get_embedding_function()
-llm = get_llm(use_fine_tuned=False)  # Default to base model
+# llm = get_llm() # Remove this global instance, it's not used
 vectorstore = get_vectorstore()
 
 def post_process_summary(summary_text, search_results):
@@ -276,38 +266,37 @@ def reload_prompt_template():
     st.cache_data.clear()
     st.success("Prompt templates reloaded!")
 
-def generate_summary(query, full_content, search_results, prompt_type="basic", use_fine_tuned=False):
-    """Generate a summary article from the search results using an LLM
+def generate_summary(query, full_content, search_results):
+    """Generate a summary article from the search results using the advanced prompt and base LLM
     
     Args:
         query: The search query
         full_content: The full content of the search results
         search_results: The search results objects
-        prompt_type: Type of prompt to use ("basic" or "advanced")
-        use_fine_tuned: Whether to use the fine-tuned model
         
     Returns:
         The generated summary
     """
-    # Read the prompt template from file
-    prompt_text = load_prompt_template(prompt_type)
+    # Read the ADVANCED prompt template from file
+    prompt_text = load_prompt_template("advanced")
     
     # Fallback to hardcoded prompt if file can't be read
     if not prompt_text:
+        # Simplified fallback prompt if needed (though ideally the file load works)
         prompt_text = """
-        You are a food writer creating a summary article based on search results for "{query}".
+        You are a food writer creating a detailed summary article based on search results for "{query}".
         
         Here are the details of restaurants found in the search:
         {full_content}
                 
-        Format your response with markdown.
+        Format your response with markdown, including a title and bullet points.
         """
     
     # Create the prompt for the LLM
     prompt_template = ChatPromptTemplate.from_template(prompt_text)
     
-    # Get the appropriate model
-    model = get_llm(use_fine_tuned=use_fine_tuned)
+    # Get the base model
+    model = get_llm() 
     
     # Generate the summary
     chain = prompt_template | model
@@ -340,124 +329,29 @@ def prepare_download_content(query, content):
     formatted_content = f"Search query: {query}\n\n{content}"
     return formatted_content
 
-def prepare_download_content_for_summaries(query, summary_type, summaries):
-    """Prepare content for download based on the selected summary type
+def prepare_download_content_for_summaries(query, summary_text):
+    """Prepare summary content for download
     
     Args:
         query: The search query
-        summary_type: The type of summary selected
-        summaries: Dictionary containing all summary types
+        summary_text: The generated summary text
         
     Returns:
         Formatted content for download
     """
     content = f"Search query: {query}\n\n"
-    
-    if summary_type == "All":
-        content += "BASIC SUMMARY (BASE MODEL):\n\n"
-        content += summaries["basic_base"]
-        content += "\n\n" + "="*50 + "\n\n"
-        
-        content += "ADVANCED SUMMARY (BASE MODEL):\n\n"
-        content += summaries["advanced_base"]
-        content += "\n\n" + "="*50 + "\n\n"
-        
-        content += "BASIC SUMMARY (FINE-TUNED MODEL):\n\n"
-        content += summaries["basic_fine_tuned"]
-        content += "\n\n" + "="*50 + "\n\n"
-        
-        content += "ADVANCED SUMMARY (FINE-TUNED MODEL):\n\n"
-        content += summaries["advanced_fine_tuned"]
-        
-    elif summary_type == "Basic prompt / base model":
-        content += summaries["basic_base"]
-        
-    elif summary_type == "Advanced prompt / base model":
-        content += summaries["advanced_base"]
-        
-    elif summary_type == "Basic prompt / fine-tuned model":
-        content += summaries["basic_fine_tuned"]
-        
-    elif summary_type == "Advanced prompt / fine-tuned model":
-        content += summaries["advanced_fine_tuned"]
-        
+    content += "SUMMARY:\n\n" # Simplified header
+    content += summary_text
     return content
 
-def generate_all_summary_types(query, full_content, search_results):
-    """Generate all four types of summaries
+def display_summary(summary_text):
+    """Display the generated summary
     
     Args:
-        query: The search query
-        full_content: The full content of the search results
-        search_results: The search results objects
-        
-    Returns:
-        Dictionary containing all four summary types
+        summary_text: The generated summary text to display
     """
-    summaries = {}
-    
-    # Generate basic summary with base model
-    with st.spinner("Generating basic summary with base model..."):
-        summaries["basic_base"] = generate_summary(
-            query, full_content, search_results, 
-            prompt_type="basic", use_fine_tuned=False
-        )
-    
-    # Generate advanced summary with base model
-    with st.spinner("Generating advanced summary with base model..."):
-        summaries["advanced_base"] = generate_summary(
-            query, full_content, search_results, 
-            prompt_type="advanced", use_fine_tuned=False
-        )
-    
-    # Generate basic summary with fine-tuned model
-    with st.spinner("Generating basic summary with fine-tuned model..."):
-        summaries["basic_fine_tuned"] = generate_summary(
-            query, full_content, search_results, 
-            prompt_type="basic", use_fine_tuned=True
-        )
-    
-    # Generate advanced summary with fine-tuned model
-    with st.spinner("Generating advanced summary with fine-tuned model..."):
-        summaries["advanced_fine_tuned"] = generate_summary(
-            query, full_content, search_results, 
-            prompt_type="advanced", use_fine_tuned=True
-        )
-    
-    return summaries
-
-def display_summaries(summary_type, summaries):
-    """Display summaries based on the selected type
-    
-    Args:
-        summary_type: The type of summary to display
-        summaries: Dictionary containing all summary types
-    """
-    if summary_type == "All":
-        # Display all four summaries
-        st.header("Basic Summary (Base Model)")
-        st.markdown(standardize_summary_headline(summaries["basic_base"]))
-        
-        st.header("Advanced Summary (Base Model)")
-        st.markdown(standardize_summary_headline(summaries["advanced_base"]))
-        
-        st.header("Basic Summary (Fine-tuned Model)")
-        st.markdown(standardize_summary_headline(summaries["basic_fine_tuned"]))
-        
-        st.header("Advanced Summary (Fine-tuned Model)")
-        st.markdown(standardize_summary_headline(summaries["advanced_fine_tuned"]))
-        
-    elif summary_type == "Basic prompt / base model":
-        st.markdown(standardize_summary_headline(summaries["basic_base"]))
-        
-    elif summary_type == "Advanced prompt / base model":
-        st.markdown(standardize_summary_headline(summaries["advanced_base"]))
-        
-    elif summary_type == "Basic prompt / fine-tuned model":
-        st.markdown(standardize_summary_headline(summaries["basic_fine_tuned"]))
-        
-    elif summary_type == "Advanced prompt / fine-tuned model":
-        st.markdown(standardize_summary_headline(summaries["advanced_fine_tuned"]))
+    # Display the single summary directly
+    st.markdown(standardize_summary_headline(summary_text))
 
 # Create Streamlit interface
 st.title(f"Roadfood {EDITION} Edition Restaurant Search")
@@ -511,21 +405,6 @@ with st.sidebar:
         
         generate_article_checkbox = st.checkbox("Generate summary article", value=True)
         
-        # Only show this option if generate_article_checkbox is checked
-        summary_type = "All"
-        if generate_article_checkbox:
-            summary_type = st.selectbox(
-                "Summary type",
-                [
-                    "All",
-                    "Basic prompt / base model",
-                    "Advanced prompt / base model",
-                    "Basic prompt / fine-tuned model",
-                    "Advanced prompt / fine-tuned model"
-                ],
-                index=0  # Default to "All"
-            )
-        
         save_checkbox = st.checkbox("Enable download option", value=False)
         
         # Form submit button
@@ -546,109 +425,24 @@ if search_submitted:
                     # Extract full content for summarization
                     full_content = "\n\n".join([doc.page_content for doc in search_results])
                     
-                    # Generate summaries based on the selected type
-                    if summary_type == "All":
-                        # Generate all summary types
-                        summaries = generate_all_summary_types(query_input, full_content, search_results)
-                        
-                        # Display all summaries
-                        display_summaries(summary_type, summaries)
-                        
-                        # Save all summaries if requested
-                        if save_checkbox:
-                            download_content = prepare_download_content_for_summaries(query_input, summary_type, summaries)
-                            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                            filename = f"search_results_{timestamp}.txt"
-                            st.download_button(
-                                label="Download Results",
-                                data=download_content,
-                                file_name=filename,
-                                mime="text/plain"
-                            )
-                    elif summary_type == "Basic prompt / base model":
-                        # Generate basic summary with base model
-                        with st.spinner("Generating basic summary with base model..."):
-                            basic_base = generate_summary(query_input, full_content, search_results, 
-                                                         prompt_type="basic", use_fine_tuned=False)
-                            summaries = {"basic_base": basic_base}
-                            
-                            # Display the summary
-                            display_summaries(summary_type, summaries)
-                            
-                            # Save if requested
-                            if save_checkbox:
-                                download_content = prepare_download_content_for_summaries(query_input, summary_type, summaries)
-                                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                                filename = f"search_results_{timestamp}.txt"
-                                st.download_button(
-                                    label="Download Results",
-                                    data=download_content,
-                                    file_name=filename,
-                                    mime="text/plain"
-                                )
-                    elif summary_type == "Advanced prompt / base model":
-                        # Generate advanced summary with base model
-                        with st.spinner("Generating advanced summary with base model..."):
-                            advanced_base = generate_summary(query_input, full_content, search_results, 
-                                                           prompt_type="advanced", use_fine_tuned=False)
-                            summaries = {"advanced_base": advanced_base}
-                            
-                            # Display the summary
-                            display_summaries(summary_type, summaries)
-                            
-                            # Save if requested
-                            if save_checkbox:
-                                download_content = prepare_download_content_for_summaries(query_input, summary_type, summaries)
-                                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                                filename = f"search_results_{timestamp}.txt"
-                                st.download_button(
-                                    label="Download Results",
-                                    data=download_content,
-                                    file_name=filename,
-                                    mime="text/plain"
-                                )
-                    elif summary_type == "Basic prompt / fine-tuned model":
-                        # Generate basic summary with fine-tuned model
-                        with st.spinner("Generating basic summary with fine-tuned model..."):
-                            basic_fine_tuned = generate_summary(query_input, full_content, search_results, 
-                                                              prompt_type="basic", use_fine_tuned=True)
-                            summaries = {"basic_fine_tuned": basic_fine_tuned}
-                            
-                            # Display the summary
-                            display_summaries(summary_type, summaries)
-                            
-                            # Save if requested
-                            if save_checkbox:
-                                download_content = prepare_download_content_for_summaries(query_input, summary_type, summaries)
-                                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                                filename = f"search_results_{timestamp}.txt"
-                                st.download_button(
-                                    label="Download Results",
-                                    data=download_content,
-                                    file_name=filename,
-                                    mime="text/plain"
-                                )
-                    elif summary_type == "Advanced prompt / fine-tuned model":
-                        # Generate advanced summary with fine-tuned model
-                        with st.spinner("Generating advanced summary with fine-tuned model..."):
-                            advanced_fine_tuned = generate_summary(query_input, full_content, search_results, 
-                                                                 prompt_type="advanced", use_fine_tuned=True)
-                            summaries = {"advanced_fine_tuned": advanced_fine_tuned}
-                            
-                            # Display the summary
-                            display_summaries(summary_type, summaries)
-                            
-                            # Save if requested
-                            if save_checkbox:
-                                download_content = prepare_download_content_for_summaries(query_input, summary_type, summaries)
-                                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                                filename = f"search_results_{timestamp}.txt"
-                                st.download_button(
-                                    label="Download Results",
-                                    data=download_content,
-                                    file_name=filename,
-                                    mime="text/plain"
-                                )
+                    # Generate the single summary (advanced prompt, base model)
+                    with st.spinner("Generating summary..."): 
+                        summary_result = generate_summary(query_input, full_content, search_results)
+                    
+                    # Display the summary
+                    display_summary(summary_result)
+                    
+                    # Save summary if requested
+                    if save_checkbox:
+                        download_content = prepare_download_content_for_summaries(query_input, summary_result)
+                        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"search_results_summary_{timestamp}.txt"
+                        st.download_button(
+                            label="Download Summary",
+                            data=download_content,
+                            file_name=filename,
+                            mime="text/plain"
+                        )
                 else:
                     # Display detailed results
                     output = []
@@ -679,20 +473,11 @@ if search_submitted:
 # Display some information about the app
 with st.expander("About this app"):
     st.markdown(f"""
-    This app searches through the Roadfood database to find restaurants matching your criteria.
-    It uses vector embeddings to find the most relevant matches to your query.
+    This app searches through the Roadfood database ({EDITION} edition) to find restaurants matching your criteria using vector embeddings.
     
-    The database contains restaurants from the Roadfood guide {EDITION} edition.
+    When the 'Generate summary article' option is checked, it creates a detailed summary using the search results.
     
-    When generating a summary article, the app offers several options:
-    
-    1. **Basic prompt / base model**: A concise overview using a simpler prompt with the standard model.
-    2. **Advanced prompt / base model**: A more detailed article using a comprehensive prompt with the standard model.
-    3. **Basic prompt / fine-tuned model**: A concise overview using a simpler prompt with a model fine-tuned specifically for Roadfood summaries.
-    4. **Advanced prompt / fine-tuned model**: A more detailed article using a comprehensive prompt with the fine-tuned model.
-    5. **All**: Generates all four summary types for comparison.
-    
-    All summaries include restaurant names, locations, and highlight what makes them special.
+    The summary includes restaurant names, locations, and highlights what makes them special, based on an advanced prompt template.
     """)
 
 # Add developer options in a collapsed expander at the bottom of the sidebar
@@ -703,4 +488,4 @@ with st.sidebar:
 
 # Run the app
 # Note: No need for if __name__ == "__main__" in Streamlit
-# Streamlit apps are run with the command: streamlit run roadfood_search_app.py
+# Streamlit apps are run with the command:  python -m streamlit run roadfood_search_app.py
