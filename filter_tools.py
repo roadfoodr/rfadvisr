@@ -146,6 +146,8 @@ BROAD_REGIONS_TO_STATES = {
     "the south": ["VA", "WV", "KY", "NC", "SC", "GA", "FL", "AL", "MS", "TN", "AR", "LA", "TX", "OK"], # Southeast + South Central commonly
     "southern states": ["VA", "WV", "KY", "NC", "SC", "GA", "FL", "AL", "MS", "TN", "AR", "LA", "TX", "OK"], # Alias
     "southeast": ["AL", "GA", "FL", "SC", "KY", "TN", "MS", "LA"],
+    "northwest": ["WA", "OR", "ID"],
+    "pacific northwest": ["WA", "OR"],
     # Add other broad regions like "west", "mountain west" etc. if needed
 }
 

@@ -151,11 +151,13 @@ def handle_search_request(query_input, num_results, pre_filter_checkbox, generat
         "query": query_input,
         "summary_result": None,
         "search_results": None,
+        "generated_filter": None,
         "generate_article_mode": generate_article_checkbox,
         "save_mode": save_checkbox,
         "error_message": None,
         "info_message": None
     }
+    generated_filter = {}
     try:
         # Capture run_id inside the traceable function using get_current_run_tree
         run_tree = get_current_run_tree() 
@@ -171,7 +173,6 @@ def handle_search_request(query_input, num_results, pre_filter_checkbox, generat
         if is_query_in_scope(query_input):
             # Query is IN SCOPE, proceed with processing
             with st.spinner("Analyzing query and searching for restaurants..."): 
-                generated_filter = {} 
                 if pre_filter_checkbox:
                     generated_filter = generate_search_filter(query_input)
                 else:
@@ -209,6 +210,8 @@ def handle_search_request(query_input, num_results, pre_filter_checkbox, generat
         results_dict["error_message"] = f"An error occurred during processing: {e}"
         # Error is automatically logged by the @traceable decorator, but capture for display
     
+    # Always add the generated_filter to the results before returning
+    results_dict["generated_filter"] = generated_filter
     return results_dict # <-- Return the dictionary
 # ---> END DECORATED FUNCTION <---        
 
@@ -871,6 +874,8 @@ if 'last_save_mode' not in st.session_state:
     st.session_state.last_save_mode = False
 if 'last_current_run_id' not in st.session_state:
     st.session_state.last_current_run_id = None
+if 'last_generated_filter' not in st.session_state:
+    st.session_state.last_generated_filter = None
 
 # Main content area - only process when form is submitted
 if search_submitted:
@@ -884,6 +889,7 @@ if search_submitted:
     st.session_state.last_generate_article_mode = False
     st.session_state.last_save_mode = False
     st.session_state.last_current_run_id = None
+    st.session_state.last_generated_filter = None
 
     if not query_input.strip():
         st.warning("Please enter a search query.")
@@ -905,13 +911,15 @@ if search_submitted:
             st.session_state.last_generate_article_mode = search_outcome["generate_article_mode"]
             st.session_state.last_save_mode = search_outcome["save_mode"]
             st.session_state.last_current_run_id = search_outcome.get("run_id")
+            st.session_state.last_generated_filter = search_outcome.get("generated_filter", {})
             # Store info message if present
-            st.session_state.last_info_message = search_outcome.get("info_message") 
+            st.session_state.last_info_message = search_outcome.get("info_message")
             st.session_state.last_error_message = None # Clear any previous error
         elif search_outcome:
             # Store error message if search failed
             st.session_state.last_error_message = search_outcome.get("error_message")
             st.session_state.last_query = query_input # Store query even on error for context
+            st.session_state.last_generated_filter = search_outcome.get("generated_filter")
         else:
              st.session_state.last_error_message = "An unexpected error occurred in handle_search_request."
              st.session_state.last_query = query_input
@@ -955,13 +963,18 @@ if st.session_state.get('last_query'):
         st.info("No results to display.") 
 
     # Display debug info from sidebar (moved from handle_search_request)
-    # Consider making this conditional or removing eventually
-    # if generated_filter: # Need to get this from LangGraph run if needed
-    #     st.sidebar.subheader("Generated Filter (Debug)")
-    #     st.sidebar.json(generated_filter)
-    # else:
-    #     st.sidebar.subheader("Generated Filter (Debug)")
-    #     st.sidebar.json({"info": "No filter generated"})
+    generated_filter = st.session_state.get('last_generated_filter') # GET FROM SESSION STATE
+    st.sidebar.subheader("Generated Filter (Debug)") # Always show subheader
+    if generated_filter is not None: # Check if filter exists (could be {} or None)
+        if isinstance(generated_filter, dict) and generated_filter: # Check if it's a non-empty dictionary
+            st.sidebar.json(generated_filter)
+        elif isinstance(generated_filter, dict) and not generated_filter: # Check if it's an empty dictionary
+             st.sidebar.json({"info": "No filter generated"})
+        else: # Handle other cases like None or unexpected types
+             st.sidebar.text(f"Filter data: {generated_filter}")
+    else:
+         st.sidebar.json({"info": "No filter data available"})
+
     if 'last_guardrail_result' in st.session_state and not st.session_state.get('last_error_message'):
         st.sidebar.subheader("Guardrail Result (Debug)")
         st.sidebar.text(st.session_state.last_guardrail_result)
