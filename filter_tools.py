@@ -99,30 +99,60 @@ def extract_state_filter(query: str) -> Optional[Dict]:
         print("  >> [extract_state_filter] No states found, returning None.")
         return None
 
+# Mapping of region variations/aliases (lowercase) to canonical region names
+US_REGIONS = {
+    # Deep South
+    "deep south": "Deep South",
+    # Great Plains
+    "great plains": "Great Plains",
+    # Mid-Atlantic
+    "mid-atlantic": "Mid-Atlantic",
+    "mid atlantic": "Mid-Atlantic",
+    # Mid-South
+    "mid-south": "Mid-South",
+    "mid south": "Mid-South",
+    # Midwest
+    "midwest": "Midwest",
+    # New England
+    "new england": "New England",
+    "northeast": "New England", # Alias
+    # Southwest
+    "southwest": "Southwest",
+    # West Coast
+    "west coast": "West Coast",
+    "pacific coast": "West Coast" # Alias
+    # Note: Broad terms like "South" are intentionally omitted unless they map to a specific defined region (like Mid-South).
+    # You could add more specific sub-regions or states mapping to regions if needed.
+}
+
 def extract_region_filter(query: str) -> Optional[Dict]:
     """
-    Stub function to extract region filters.
-    Looks for specific region names in the query.
+    Extracts region filters from a query by looking for US geographic region names or known aliases.
     Returns a ChromaDB filter condition dictionary if regions are found, otherwise None.
     """
+    print(f"  >> [extract_region_filter] Received query: '{query}'")
     query_lower = query.lower()
-    found_regions = []
+    # Use a set to store found canonical region names to avoid duplicates
+    found_regions_canonical = set()
 
-    # Simple keyword matching for stub implementation
-    if "new england" in query_lower:
-        found_regions.append("New England")
-    if "west coast" in query_lower:
-         found_regions.append("West Coast")
-    if "mid-atlantic" in query_lower or "mid atlantic" in query_lower:
-        found_regions.append("Mid-Atlantic")
-    if "mid-south" in query_lower: # Be careful, "south" is broad
-        found_regions.append("Mid-South")
-    # Add more regions...
+    # Check for matches in the query using the comprehensive mapping
+    for key in US_REGIONS.keys():
+        # Use word boundaries to avoid partial matches within words
+        # Handles multi-word keys (like "new england") and single-word keys/aliases
+        pattern = r'\b' + re.escape(key) + r'\b' # Escape keys in case they contain regex special chars
+        if re.search(pattern, query_lower):
+            region_canonical = US_REGIONS[key]
+            print(f"  >> [extract_region_filter] Match found for '{key}', adding canonical region: {region_canonical}")
+            found_regions_canonical.add(region_canonical)
 
-    if found_regions:
-        print(f"  > (Stub Tool) Found Regions: {found_regions}")
-        return {"Region": {"$in": found_regions}}
+    print(f"  >> [extract_region_filter] Final found canonical regions (set): {found_regions_canonical}")
+    if found_regions_canonical:
+        # Convert set to list for JSON serialization in the filter
+        found_regions_list = list(found_regions_canonical)
+        print(f"  >> [extract_region_filter] Found Regions List (canonical): {found_regions_list}")
+        return {"Region": {"$in": found_regions_list}}
     else:
+        print("  >> [extract_region_filter] No regions found, returning None.")
         return None
 
 # --- Define LangChain Tools ---
