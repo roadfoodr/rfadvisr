@@ -8,6 +8,8 @@ import modal
 # Path to the Streamlit app script
 streamlit_script_local_path = Path("roadfood_search_app.py")
 streamlit_script_remote_path = "/root/roadfood_search_app.py"
+filter_tools_local_path = Path("filter_tools.py")
+filter_tools_remote_path = "/root/filter_tools.py"
 
 # Create an image with the necessary dependencies
 image = (
@@ -29,6 +31,10 @@ image = (
     .add_local_file(
         streamlit_script_local_path,
         streamlit_script_remote_path,
+    )
+    .add_local_file(
+        filter_tools_local_path,
+        filter_tools_remote_path,
     )
 )
 

@@ -264,17 +264,23 @@ def standardize_summary_headline(summary_text):
     # If we didn't find any title content, return the original text
     return summary_text
 
-def load_prompt_template(prompt_type="basic"):
+def load_prompt_template(prompt_type="advanced"):
     """Load the prompt template from file
     
     Args:
-        prompt_type: Type of prompt to load ("basic" or "advanced")
+        prompt_type: Type of prompt to load ("basic", "advanced", or "tool_calling")
     
     Returns:
         The prompt template text or None if there was an error
     """
     base_dir = get_base_dir()
-    filename = base_dir / f"prompts/{prompt_type}_summary_prompt.txt"
+    # Adjust filename based on type
+    if prompt_type == "tool_calling":
+        filename = base_dir / f"prompts/tool_calling_prompt.txt"
+    else:
+        # Default to summary prompts if not tool_calling
+        filename = base_dir / f"prompts/{prompt_type}_summary_prompt.txt"
+    
     try:
         with open(filename, "r") as f:
             return f.read()
@@ -350,13 +356,18 @@ def tool_calling_node(state: FilterGenerationState) -> Dict:
     llm = get_llm()
     llm_with_tools = llm.bind_tools(filter_tools)
 
-    # Basic prompt for tool calling
-    # TODO: Refine this prompt for better accuracy and handling edge cases
+    # Load the system prompt from file
+    system_prompt_text = load_prompt_template("tool_calling")
+    if not system_prompt_text:
+        # Fallback or error handling if prompt file fails to load
+        st.error("Failed to load tool calling prompt! Using default behavior.")
+        # Decide how to handle this - maybe return an error state?
+        # For now, let's just proceed without a proper prompt which might fail.
+        system_prompt_text = "You are a helpful assistant." # Basic fallback
+
+    # Create ChatPromptTemplate using the loaded system prompt
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an assistant that analyzes user queries about restaurants. "
-                   "Your task is to identify if the query mentions specific US states or geographic regions. "
-                   "Use the available tools to extract these criteria for filtering search results. "
-                   "Only call a tool if the query explicitly mentions the corresponding information (state or region)."),
+        ("system", system_prompt_text),
         ("human", "{query}")
     ])
 
@@ -514,14 +525,18 @@ def perform_search(query, num_results, filter_dict=None):
     if not query.strip():
         return []
 
-    print("--- Performing search without filter ---")
+    # Determine the actual filter to pass to ChromaDB
+    # Pass None if filter_dict is empty or None, otherwise pass the filter_dict
+    chroma_filter = filter_dict if filter_dict else None
+
+    print(f"--- Performing search with filter: {chroma_filter} ---")
 
     try:
         # Call similarity_search using the standard Langchain 'filter' argument
         results = vectorstore.similarity_search(
             query=query,
             k=num_results,
-            filter=filter_dict # Use 'filter' instead of 'where'
+            filter=chroma_filter # Use the adjusted filter
         )
         return results
     except Exception as e:
