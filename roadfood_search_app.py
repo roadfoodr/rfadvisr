@@ -16,6 +16,11 @@ from langgraph.graph import StateGraph, END
 # Import filter tools
 from filter_tools import filter_tools
 
+# ---> ADDED LANGSMITH IMPORTS <---
+from langsmith import Client
+from langsmith.run_trees import traceable
+# ---> END LANGSMITH IMPORTS <---
+
 # --- LangGraph State Definition ---
 class FilterGenerationState(TypedDict):
     """Represents the state of our filter generation graph."""
@@ -48,10 +53,31 @@ st.set_page_config(
 if "OPENAI_API_KEY" not in os.environ:
     try:
         # Running locally, load from credentials.yml
-        os.environ['OPENAI_API_KEY'] = yaml.safe_load(open('credentials.yml'))['openai']
+        credentials = yaml.safe_load(open('credentials.yml'))
+        os.environ['OPENAI_API_KEY'] = credentials['openai']
+        # ---> ADDED LANGSMITH SETUP <---
+        if 'langsmith' in credentials:
+            os.environ['LANGSMITH_TRACING'] = 'true' # Use LANGSMITH_TRACING as per latest docs
+            os.environ['LANGSMITH_ENDPOINT'] = "https://api.smith.langchain.com"
+            os.environ['LANGSMITH_API_KEY'] = credentials['langsmith']
+            os.environ['LANGSMITH_PROJECT'] = f"rf_search_app_{EDITION}" # Set a project name
+            print("--- LangSmith tracing enabled ---")
+        else:
+            print("--- LangSmith API key not found in credentials.yml, tracing disabled ---")
+        # ---> END LANGSMITH SETUP <---
     except Exception as e:
-        st.error(f"Error loading OpenAI API key: {str(e)}")
+        st.error(f"Error loading API keys: {str(e)}")
         st.stop()
+
+# ---> INITIALIZE LANGSMITH CLIENT <---
+try:
+    ls_client = Client()
+    print("--- LangSmith client initialized ---")
+except Exception as e:
+    ls_client = None
+    st.warning(f"Could not initialize LangSmith client: {e}. Feedback logging disabled.")
+    print(f"--- LangSmith client initialization failed: {e} ---")
+# ---> END LANGSMITH CLIENT INIT <---
 
 MODEL_EMBEDDING = 'text-embedding-ada-002'
 LLM_MODEL = 'gpt-3.5-turbo'
@@ -329,7 +355,9 @@ def generate_summary(query, full_content, search_results):
     model = get_llm() 
     
     # Generate the summary
-    chain = prompt_template | model
+    # ---> ADDED CONFIG TO NAME THE CHAIN RUN <---
+    chain = (prompt_template | model).with_config({"run_name": "Summary Generation"})
+    # ---> END CONFIG <---
     response = chain.invoke({"query": query, "full_content": full_content})
     
     # Post-process the summary to format restaurant names
@@ -479,6 +507,9 @@ def build_filter_graph():
 # Instantiate the graph when the script loads
 # Consider caching if graph compilation becomes complex/slow
 filter_generation_graph = build_filter_graph()
+# ---> ADDED CONFIG TO NAME THE GRAPH RUN <---
+filter_generation_graph = filter_generation_graph.with_config({"run_name": "Filter Generation"})
+# ---> END CONFIG <---
 
 def generate_search_filter(query: str) -> Dict:
     """
@@ -600,7 +631,10 @@ def is_query_in_scope(query: str) -> bool:
             return True # Fail safe
 
         prompt = ChatPromptTemplate.from_template(prompt_text)
-        chain = prompt | llm
+        # ---> ADDED CONFIG TO NAME THE CHAIN RUN <---
+        chain = (prompt | llm).with_config({"run_name": "Guardrail Scope Check"})
+        # ---> END CONFIG <---
+        # chain = prompt | llm # Original line
 
         response = chain.invoke({"query": query})
         raw_classification = response.content.strip()
@@ -683,102 +717,195 @@ with st.sidebar:
         # Form submit button
         search_submitted = st.form_submit_button("Search")
 
+# Initialize session state for feedback if it doesn't exist
+if 'feedback_submitted' not in st.session_state:
+    st.session_state.feedback_submitted = False
+if 'current_run_id' not in st.session_state:
+    st.session_state.current_run_id = None
+
 # Main content area - only process when form is submitted
 if search_submitted:
+    # Reset feedback state for new search
+    st.session_state.feedback_submitted = False
+    st.session_state.current_run_id = None
+
     if not query_input.strip():
         st.warning("Please enter a search query.")
     else:
-        # ---> GUARDRAIL CHECK <-----
-        if is_query_in_scope(query_input):
-            # Query is IN SCOPE, proceed with processing
-            with st.spinner("Analyzing query and searching for restaurants..."): # Updated spinner message
-                generated_filter = {} # Initialize filter as empty
-                # 1. Generate filter using LangGraph ONLY if checkbox is checked
-                if pre_filter_checkbox:
-                    generated_filter = generate_search_filter(query_input)
-                else:
-                     print("--- Skipping pre-filtering step as requested ---") # Added log message
+        # Wrap the entire query processing in a traceable block
+        try:
+            with traceable("user_query_processing", 
+                           run_type="chain", 
+                           project_name=os.environ.get('LANGSMITH_PROJECT', 'rf_search_app_10th')) as run_context:
+                
+                st.session_state.current_run_id = run_context.id # Capture run_id early
+                print(f"--- Captured LangSmith run_id: {st.session_state.current_run_id} ---")
 
-                # 2. Perform the search, passing the (potentially empty) generated filter
-                search_results = perform_search(
-                    query_input,
-                    num_results,
-                    filter_dict=generated_filter # Pass the filter here
+                # ---> GUARDRAIL CHECK <-----
+                if is_query_in_scope(query_input):
+                    # Query is IN SCOPE, proceed with processing
+                    with st.spinner("Analyzing query and searching for restaurants..."): # Updated spinner message
+                        generated_filter = {} # Initialize filter as empty
+                        # 1. Generate filter using LangGraph ONLY if checkbox is checked
+                        if pre_filter_checkbox:
+                            generated_filter = generate_search_filter(query_input)
+                        else:
+                             print("--- Skipping pre-filtering step as requested ---") # Added log message
+
+                        # 2. Perform the search, passing the (potentially empty) generated filter
+                        search_results = perform_search(
+                            query_input,
+                            num_results,
+                            filter_dict=generated_filter # Pass the filter here
+                        )
+
+                        if search_results:
+                            # Process and display results based on user preferences
+                            if generate_article_checkbox:
+                                # Extract full content for summarization
+                                full_content = "\n\n".join([doc.page_content for doc in search_results])
+                                
+                                # Generate the single summary (advanced prompt, base model)
+                                with st.spinner("Generating summary..."): 
+                                    summary_result = generate_summary(query_input, full_content, search_results)
+                                
+                                # Display the summary
+                                display_summary(summary_result)
+                                
+                                # Save summary if requested
+                                if save_checkbox:
+                                    download_content = prepare_download_content_for_summaries(query_input, summary_result)
+                                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                                    filename = f"search_results_summary_{timestamp}.txt"
+                                    st.download_button(
+                                        label="Download Summary",
+                                        data=download_content,
+                                        file_name=filename,
+                                        mime="text/plain"
+                                    )
+                            else:
+                                # Display detailed results
+                                output = []
+                                for i, doc in enumerate(search_results):
+                                    output.append(f"## Result {i+1}:\n\n{doc.page_content}\n\n---")
+                                
+                                display_content = "\n".join(output)
+                                
+                                # Save to file if requested
+                                if save_checkbox:
+                                    detailed_content = f"Search query: {query_input}\n\n"
+                                    for i, doc in enumerate(search_results):
+                                        detailed_content += f"Result {i+1}:\n"
+                                        detailed_content += f"{doc.page_content}\n"
+                                        detailed_content += "-" * 50 + "\n\n"
+                                    
+                                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                                    filename = f"search_results_{timestamp}.txt"
+                                    st.download_button(
+                                        label="Download Results",
+                                        data=detailed_content,
+                                        file_name=filename,
+                                        mime="text/plain"
+                                    )
+                                
+                                st.markdown(display_content)
+                        else:
+                             st.info("No results found matching your query and filters.") # Added mention of filters
+
+                        # Optional: Display the generated filter for debugging
+                        # Consider moving this or making it conditional later
+                        if generated_filter:
+                            st.sidebar.subheader("Generated Filter (Debug)")
+                            st.sidebar.json(generated_filter)
+                        else:
+                            st.sidebar.subheader("Generated Filter (Debug)")
+                            st.sidebar.json({"info": "No filter generated"})
+                        
+                        # Display Guardrail Raw Result (Debug)
+                        if 'last_guardrail_result' in st.session_state:
+                            st.sidebar.subheader("Guardrail Result (Debug)")
+                            st.sidebar.text(st.session_state.last_guardrail_result)
+                else:
+                    # Query is OUT OF SCOPE
+                    st.error("Sorry, I can only answer questions about restaurants and food based on the Roadfood guide. Please try a different query.")
+                    # Display Guardrail Raw Result even when out of scope
+                    if 'last_guardrail_result' in st.session_state:
+                        st.sidebar.subheader("Guardrail Result (Debug)")
+                        st.sidebar.text(st.session_state.last_guardrail_result)
+            
+            # ---> ADD FEEDBACK FORM DISPLAY LOGIC <---            
+            if st.session_state.current_run_id and not st.session_state.feedback_submitted:
+                st.divider()
+                st.subheader("Was this response helpful?")
+                
+                feedback_cols = st.columns([1, 1, 8]) # Adjust column ratios as needed
+                with feedback_cols[0]:
+                    if st.button("👍 Yes", key="feedback_yes"):
+                        score = 1
+                        st.session_state.feedback_score = score
+                        # Submit immediately if no comment needed, or wait for text + button
+                        # For simplicity, let's require the submit button even for just thumbs up/down
+                        
+                with feedback_cols[1]:
+                    if st.button("👎 No", key="feedback_no"):
+                        score = 0
+                        st.session_state.feedback_score = score
+                        # Same as above
+                
+                # Store comment in session state to preserve across reruns from button clicks
+                if 'feedback_comment' not in st.session_state:
+                    st.session_state.feedback_comment = ""
+                
+                st.session_state.feedback_comment = st.text_area(
+                    "Reason for rating (optional):", 
+                    key="feedback_comment_input",
+                    value=st.session_state.feedback_comment # Use session state value
                 )
 
-                if search_results:
-                    # Process and display results based on user preferences
-                    if generate_article_checkbox:
-                        # Extract full content for summarization
-                        full_content = "\n\n".join([doc.page_content for doc in search_results])
-                        
-                        # Generate the single summary (advanced prompt, base model)
-                        with st.spinner("Generating summary..."): 
-                            summary_result = generate_summary(query_input, full_content, search_results)
-                        
-                        # Display the summary
-                        display_summary(summary_result)
-                        
-                        # Save summary if requested
-                        if save_checkbox:
-                            download_content = prepare_download_content_for_summaries(query_input, summary_result)
-                            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                            filename = f"search_results_summary_{timestamp}.txt"
-                            st.download_button(
-                                label="Download Summary",
-                                data=download_content,
-                                file_name=filename,
-                                mime="text/plain"
+                if st.button("Submit Feedback", key="feedback_submit"):
+                    score = st.session_state.get('feedback_score', None) # Get score saved by Yes/No buttons
+                    comment = st.session_state.feedback_comment
+                    run_id = st.session_state.current_run_id
+                    
+                    if score is None:
+                        st.warning("Please select '👍 Yes' or '👎 No' before submitting.")
+                    elif ls_client and run_id:
+                        try:
+                            ls_client.create_feedback(
+                                run_id=run_id,
+                                key="user_feedback", # Use a key for the feedback type
+                                score=score,
+                                comment=comment if comment else None, # Don't send empty string
+                                source_type="user" # Indicate source
                             )
+                            st.success("Feedback submitted successfully! Thank you.")
+                            st.session_state.feedback_submitted = True
+                            # Clear form state
+                            del st.session_state.feedback_score
+                            st.session_state.feedback_comment = ""
+                            st.rerun() # Rerun to hide the form
+                        except Exception as fb_error:
+                            st.error(f"Failed to submit feedback: {fb_error}")
+                            print(f"--- Error submitting feedback to LangSmith: {fb_error} ---")
+                    elif not ls_client:
+                         st.warning("LangSmith client not available. Feedback not submitted.")
                     else:
-                        # Display detailed results
-                        output = []
-                        for i, doc in enumerate(search_results):
-                            output.append(f"## Result {i+1}:\n\n{doc.page_content}\n\n---")
-                        
-                        display_content = "\n".join(output)
-                        
-                        # Save to file if requested
-                        if save_checkbox:
-                            detailed_content = f"Search query: {query_input}\n\n"
-                            for i, doc in enumerate(search_results):
-                                detailed_content += f"Result {i+1}:\n"
-                                detailed_content += f"{doc.page_content}\n"
-                                detailed_content += "-" * 50 + "\n\n"
-                            
-                            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                            filename = f"search_results_{timestamp}.txt"
-                            st.download_button(
-                                label="Download Results",
-                                data=detailed_content,
-                                file_name=filename,
-                                mime="text/plain"
-                            )
-                        
-                        st.markdown(display_content)
-                else:
-                     st.info("No results found matching your query and filters.") # Added mention of filters
+                         st.error("Could not find the Run ID. Feedback not submitted.")
+            elif st.session_state.feedback_submitted:
+                st.success("Feedback for this search has been submitted. Thank you!")
+            # ---> END FEEDBACK FORM DISPLAY LOGIC <---
 
-                # Optional: Display the generated filter for debugging
-                # Consider moving this or making it conditional later
-                if generated_filter:
-                    st.sidebar.subheader("Generated Filter (Debug)")
-                    st.sidebar.json(generated_filter)
-                else:
-                    st.sidebar.subheader("Generated Filter (Debug)")
-                    st.sidebar.json({"info": "No filter generated"})
-                
-                # Display Guardrail Raw Result (Debug)
-                if 'last_guardrail_result' in st.session_state:
-                    st.sidebar.subheader("Guardrail Result (Debug)")
-                    st.sidebar.text(st.session_state.last_guardrail_result)
-        else:
-            # Query is OUT OF SCOPE
-            st.error("Sorry, I can only answer questions about restaurants and food based on the Roadfood guide. Please try a different query.")
-            # Display Guardrail Raw Result even when out of scope
-            if 'last_guardrail_result' in st.session_state:
-                st.sidebar.subheader("Guardrail Result (Debug)")
-                st.sidebar.text(st.session_state.last_guardrail_result)
+        except Exception as e:
+            # Catch errors during the main traceable block execution
+            st.error(f"An error occurred during processing: {e}")
+            print(f"--- Error within traceable block: {e} ---")
+            # Optionally log error to LangSmith run if context is available
+            if 'run_context' in locals() and run_context:
+                 try:
+                     run_context.end(error=str(e))
+                     print(f"--- Logged error to LangSmith run {run_context.id} ---")
+                 except Exception as log_e:
+                     print(f"--- Failed to log error to LangSmith run: {log_e} ---")
 
 # Display some information about the app
 with st.expander("About this app"):

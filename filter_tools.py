@@ -2,6 +2,7 @@ from langchain.tools import Tool
 from typing import Optional, Dict, List
 from pydantic import BaseModel, Field
 import re
+from langsmith import traceable
 
 # --- Input Schemas for Tools ---
 class StateInput(BaseModel):
@@ -80,6 +81,7 @@ US_STATES = {
     "wyoming": "WY", "wy": "WY"
 }
 
+@traceable(run_type="tool", name="State Extractor Tool")
 def extract_state_filter(query: str) -> Optional[Dict]:
     """
     Extracts state filters from a query by looking for US state names or abbreviations.
@@ -146,6 +148,7 @@ BROAD_REGIONS_TO_STATES = {
     # Add other broad regions like "west", "mountain west" etc. if needed
 }
 
+@traceable(run_type="tool", name="Region Extractor Tool")
 def extract_region_filter(query: str) -> Optional[Dict]:
     """
     Extracts filters from a query based on US geographic regions.
