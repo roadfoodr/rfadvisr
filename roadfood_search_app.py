@@ -268,7 +268,7 @@ def load_prompt_template(prompt_type="advanced"):
     """Load the prompt template from file
     
     Args:
-        prompt_type: Type of prompt to load ("basic", "advanced", or "tool_calling")
+        prompt_type: Type of prompt to load ("basic", "advanced", "tool_calling", or "guardrail")
     
     Returns:
         The prompt template text or None if there was an error
@@ -277,8 +277,10 @@ def load_prompt_template(prompt_type="advanced"):
     # Adjust filename based on type
     if prompt_type == "tool_calling":
         filename = base_dir / f"prompts/tool_calling_prompt.txt"
+    elif prompt_type == "guardrail": # Added guardrail type
+        filename = base_dir / f"prompts/guardrail_prompt.txt"
     else:
-        # Default to summary prompts if not tool_calling
+        # Default to summary prompts if not tool_calling or guardrail
         filename = base_dir / f"prompts/{prompt_type}_summary_prompt.txt"
     
     try:
@@ -339,7 +341,7 @@ def generate_summary(query, full_content, search_results):
 
 # analyze_query_node removed - replaced by tool calling approach
 
-# --- NEW Tool Calling Node ---
+# --- Tool Calling Node ---
 def tool_calling_node(state: FilterGenerationState) -> Dict:
     """Uses an LLM to decide which filter tools to call based on the query.
 
@@ -575,6 +577,53 @@ def display_summary(summary_text):
     # Display the single summary directly
     st.markdown(standardize_summary_headline(summary_text))
 
+@st.cache_data # Cache results for the same query to save LLM calls
+def is_query_in_scope(query: str) -> bool:
+    """
+    Uses an LLM to determine if the user's query is related to finding
+    restaurants or food within the scope of the Roadfood database.
+    Stores the raw classification result in session_state.
+    """
+    print(f"--- Checking scope for query: '{query}' ---")
+    # Clear previous result from session state
+    if 'last_guardrail_result' in st.session_state:
+        del st.session_state.last_guardrail_result
+
+    try:
+        llm = get_llm()
+
+        # Load the prompt from file
+        prompt_text = load_prompt_template("guardrail")
+        if not prompt_text:
+            st.error("Failed to load guardrail prompt! Assuming query is in scope.")
+            print("  > Error: Failed to load guardrail prompt file.")
+            return True # Fail safe
+
+        prompt = ChatPromptTemplate.from_template(prompt_text)
+        chain = prompt | llm
+
+        response = chain.invoke({"query": query})
+        raw_classification = response.content.strip()
+        # Store the raw result in session state for debugging
+        st.session_state.last_guardrail_result = raw_classification
+
+        classification = raw_classification.upper()
+        print(f"  > Scope classification raw: {raw_classification}")
+        print(f"  > Scope classification upper: {classification}")
+
+        # More robust check: look for the keyword within the response
+        is_in_scope = "IN_SCOPE" in classification
+        print(f"  > Is in scope? {is_in_scope}")
+        return is_in_scope
+
+    except Exception as e:
+        st.warning(f"Error during scope check: {e}. Proceeding assuming query is in scope.")
+        print(f"  > Error during scope check: {e}")
+        # Store error message in session state if needed
+        st.session_state.last_guardrail_result = f"Error: {e}"
+        # Fail-safe: If the check fails, assume it's in scope
+        return True
+
 # Create Streamlit interface
 st.title(f"Roadfood {EDITION} Edition Restaurant Search")
 st.markdown("Search for restaurants based on your preferences, cuisine, location, etc.")
@@ -639,82 +688,97 @@ if search_submitted:
     if not query_input.strip():
         st.warning("Please enter a search query.")
     else:
-        with st.spinner("Analyzing query and searching for restaurants..."): # Updated spinner message
-            generated_filter = {} # Initialize filter as empty
-            # 1. Generate filter using LangGraph ONLY if checkbox is checked
-            if pre_filter_checkbox:
-                generated_filter = generate_search_filter(query_input)
-            else:
-                 print("--- Skipping pre-filtering step as requested ---") # Added log message
-
-            # 2. Perform the search, passing the (potentially empty) generated filter
-            search_results = perform_search(
-                query_input,
-                num_results,
-                filter_dict=generated_filter # Pass the filter here
-            )
-
-            if search_results:
-                # Process and display results based on user preferences
-                if generate_article_checkbox:
-                    # Extract full content for summarization
-                    full_content = "\n\n".join([doc.page_content for doc in search_results])
-                    
-                    # Generate the single summary (advanced prompt, base model)
-                    with st.spinner("Generating summary..."): 
-                        summary_result = generate_summary(query_input, full_content, search_results)
-                    
-                    # Display the summary
-                    display_summary(summary_result)
-                    
-                    # Save summary if requested
-                    if save_checkbox:
-                        download_content = prepare_download_content_for_summaries(query_input, summary_result)
-                        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                        filename = f"search_results_summary_{timestamp}.txt"
-                        st.download_button(
-                            label="Download Summary",
-                            data=download_content,
-                            file_name=filename,
-                            mime="text/plain"
-                        )
+        # ---> GUARDRAIL CHECK <-----
+        if is_query_in_scope(query_input):
+            # Query is IN SCOPE, proceed with processing
+            with st.spinner("Analyzing query and searching for restaurants..."): # Updated spinner message
+                generated_filter = {} # Initialize filter as empty
+                # 1. Generate filter using LangGraph ONLY if checkbox is checked
+                if pre_filter_checkbox:
+                    generated_filter = generate_search_filter(query_input)
                 else:
-                    # Display detailed results
-                    output = []
-                    for i, doc in enumerate(search_results):
-                        output.append(f"## Result {i+1}:\n\n{doc.page_content}\n\n---")
-                    
-                    display_content = "\n".join(output)
-                    
-                    # Save to file if requested
-                    if save_checkbox:
-                        detailed_content = f"Search query: {query_input}\n\n"
-                        for i, doc in enumerate(search_results):
-                            detailed_content += f"Result {i+1}:\n"
-                            detailed_content += f"{doc.page_content}\n"
-                            detailed_content += "-" * 50 + "\n\n"
-                        
-                        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                        filename = f"search_results_{timestamp}.txt"
-                        st.download_button(
-                            label="Download Results",
-                            data=detailed_content,
-                            file_name=filename,
-                            mime="text/plain"
-                        )
-                    
-                    st.markdown(display_content)
-            else:
-                 st.info("No results found matching your query and filters.") # Added mention of filters
+                     print("--- Skipping pre-filtering step as requested ---") # Added log message
 
-            # Optional: Display the generated filter for debugging
-            # Consider moving this or making it conditional later
-            if generated_filter:
-                st.sidebar.subheader("Generated Filter (Debug)")
-                st.sidebar.json(generated_filter)
-            else:
-                st.sidebar.subheader("Generated Filter (Debug)")
-                st.sidebar.json({"info": "No filter generated"})
+                # 2. Perform the search, passing the (potentially empty) generated filter
+                search_results = perform_search(
+                    query_input,
+                    num_results,
+                    filter_dict=generated_filter # Pass the filter here
+                )
+
+                if search_results:
+                    # Process and display results based on user preferences
+                    if generate_article_checkbox:
+                        # Extract full content for summarization
+                        full_content = "\n\n".join([doc.page_content for doc in search_results])
+                        
+                        # Generate the single summary (advanced prompt, base model)
+                        with st.spinner("Generating summary..."): 
+                            summary_result = generate_summary(query_input, full_content, search_results)
+                        
+                        # Display the summary
+                        display_summary(summary_result)
+                        
+                        # Save summary if requested
+                        if save_checkbox:
+                            download_content = prepare_download_content_for_summaries(query_input, summary_result)
+                            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                            filename = f"search_results_summary_{timestamp}.txt"
+                            st.download_button(
+                                label="Download Summary",
+                                data=download_content,
+                                file_name=filename,
+                                mime="text/plain"
+                            )
+                    else:
+                        # Display detailed results
+                        output = []
+                        for i, doc in enumerate(search_results):
+                            output.append(f"## Result {i+1}:\n\n{doc.page_content}\n\n---")
+                        
+                        display_content = "\n".join(output)
+                        
+                        # Save to file if requested
+                        if save_checkbox:
+                            detailed_content = f"Search query: {query_input}\n\n"
+                            for i, doc in enumerate(search_results):
+                                detailed_content += f"Result {i+1}:\n"
+                                detailed_content += f"{doc.page_content}\n"
+                                detailed_content += "-" * 50 + "\n\n"
+                            
+                            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                            filename = f"search_results_{timestamp}.txt"
+                            st.download_button(
+                                label="Download Results",
+                                data=detailed_content,
+                                file_name=filename,
+                                mime="text/plain"
+                            )
+                        
+                        st.markdown(display_content)
+                else:
+                     st.info("No results found matching your query and filters.") # Added mention of filters
+
+                # Optional: Display the generated filter for debugging
+                # Consider moving this or making it conditional later
+                if generated_filter:
+                    st.sidebar.subheader("Generated Filter (Debug)")
+                    st.sidebar.json(generated_filter)
+                else:
+                    st.sidebar.subheader("Generated Filter (Debug)")
+                    st.sidebar.json({"info": "No filter generated"})
+                
+                # Display Guardrail Raw Result (Debug)
+                if 'last_guardrail_result' in st.session_state:
+                    st.sidebar.subheader("Guardrail Result (Debug)")
+                    st.sidebar.text(st.session_state.last_guardrail_result)
+        else:
+            # Query is OUT OF SCOPE
+            st.error("Sorry, I can only answer questions about restaurants and food based on the Roadfood guide. Please try a different query.")
+            # Display Guardrail Raw Result even when out of scope
+            if 'last_guardrail_result' in st.session_state:
+                st.sidebar.subheader("Guardrail Result (Debug)")
+                st.sidebar.text(st.session_state.last_guardrail_result)
 
 # Display some information about the app
 with st.expander("About this app"):
@@ -727,10 +791,10 @@ with st.expander("About this app"):
     """)
 
 # Add developer options in a collapsed expander at the bottom of the sidebar
-with st.sidebar:
-    with st.expander("Developer Options", expanded=False):
-        if st.button("Reload Prompt Template"):
-            reload_prompt_template()
+# with st.sidebar:
+#     with st.expander("Developer Options", expanded=False):
+#         if st.button("Reload Prompt Template"):
+#             reload_prompt_template()
 
 # Run the app
 # Note: No need for if __name__ == "__main__" in Streamlit
