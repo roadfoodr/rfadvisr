@@ -10,7 +10,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain.schema import Document
 import re
 from pathlib import Path
-from typing import TypedDict, Dict, Optional
+from typing import TypedDict, Dict, Optional, List
 from langgraph.graph import StateGraph, END
 
 # Import filter tools
@@ -21,7 +21,7 @@ class FilterGenerationState(TypedDict):
     """Represents the state of our filter generation graph."""
     query: str                   # Original user query
     # available_metadata: Dict[str, str] # Schema description (Removed - Handled by tool descriptions)
-    extracted_filters: Dict      # Accumulating ChromaDB 'where' filter
+    extracted_filters: List[Dict] # List of ChromaDB filter conditions extracted by tools
     error_message: Optional[str] # To capture errors during generation
 
 # Constants
@@ -333,24 +333,101 @@ def generate_summary(query, full_content, search_results):
 
 # analyze_query_node removed - replaced by tool calling approach
 
-# extract_filters_node removed - replaced by tool calling approach
+# --- NEW Tool Calling Node ---
+def tool_calling_node(state: FilterGenerationState) -> Dict:
+    """Uses an LLM to decide which filter tools to call based on the query.
+
+    Args:
+        state: The current graph state.
+
+    Returns:
+        A dictionary potentially containing the updated 'extracted_filters' list.
+    """
+    query = state["query"]
+    print(f"--- TOOL CALLING NODE for query: '{query}' ---")
+
+    # Get LLM and bind tools
+    llm = get_llm()
+    llm_with_tools = llm.bind_tools(filter_tools)
+
+    # Basic prompt for tool calling
+    # TODO: Refine this prompt for better accuracy and handling edge cases
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are an assistant that analyzes user queries about restaurants. "
+                   "Your task is to identify if the query mentions specific US states or geographic regions. "
+                   "Use the available tools to extract these criteria for filtering search results. "
+                   "Only call a tool if the query explicitly mentions the corresponding information (state or region)."),
+        ("human", "{query}")
+    ])
+
+    # Chain and invoke
+    chain = prompt | llm_with_tools
+    try:
+        ai_msg = chain.invoke({"query": query})
+    except Exception as e:
+        print(f"  Error invoking LLM with tools: {e}")
+        return {"error_message": f"LLM invocation failed: {e}"}
+
+    extracted_conditions = []
+    if not ai_msg.tool_calls:
+        print("  > LLM decided no tools were needed.")
+    else:
+        print(f"  > LLM decided to call tools: {[tc['name'] for tc in ai_msg.tool_calls]}")
+        # The `bind_tools` method prepares the LLM call, but we need to explicitly run the tools
+        # based on the ai_msg response in this LangGraph setup.
+
+        # Create a mapping of tool names to tool objects for easy lookup
+        available_tools_map = {tool.name: tool for tool in filter_tools}
+
+        for tool_call in ai_msg.tool_calls:
+            tool_name = tool_call['name']
+            print(f"    - Attempting to execute tool: {tool_name}")
+            tool_to_run = available_tools_map.get(tool_name)
+
+            if not tool_to_run:
+                print(f"    - Error: Tool '{tool_name}' requested by LLM but not found in available tools.")
+                continue # Skip to the next tool call
+
+            tool_args = tool_call.get('args')
+            print(f"    - Tool Call Args: {tool_args}")
+
+            try:
+                # Explicitly run the tool with the provided arguments
+                print(f"    - Running {tool_name}.run({tool_args})...")
+                result = tool_to_run.run(tool_args)
+                print(f"    - Tool {tool_name} executed. Result: {result}")
+
+                # Append the result if it's not None
+                if result is not None:
+                    extracted_conditions.append(result)
+                else:
+                    # Log if the tool function genuinely returned None after execution
+                    print(f"    - Tool '{tool_name}' executed but returned None.")
+
+            except Exception as e:
+                print(f"    - Error executing tool '{tool_name}' with args {tool_args}: {e}")
+                # Optionally, update the graph state with an error message here
+                # return {"error_message": f"Failed to execute tool {tool_name}: {e}"}
+
+    print(f"  > Extracted conditions after manual execution: {extracted_conditions}") # MODIFIED print message
+    return {"extracted_filters": extracted_conditions}
 
 def format_filter_node(state: FilterGenerationState) -> Dict:
     """
-    STUB: Formats the extracted list of conditions into the final ChromaDB 'where' clause.
+    Formats the extracted list of conditions into the final ChromaDB 'where' clause.
     Currently assumes OR logic if multiple conditions exist.
     (Later: Could handle more complex logic like $and/$or or validation based on analysis)
     """
-    print(f"--- (Stub) FORMATTING FILTERS ---")
-    conditions = state.get('extracted_filters', []) # Expecting a list now
+    print(f"--- FORMATTING FILTERS ---")
+    conditions = state.get('extracted_filters', []) # Expecting a List[Dict]
     final_filter = {}
 
     if not conditions:
-        print("  > (Stub) No conditions to format.")
+        print("  > No conditions extracted by tools.")
         final_filter = {} # Return empty dict if no filters
     elif len(conditions) == 1:
-        print(f"  > (Stub) Single condition: {conditions[0]}")
         final_filter = conditions[0] # Use the single condition directly
+        print(f"  > Single condition: {final_filter}")
     else:
         # Change: Combine multiple conditions using $or (stub assumption)
         # A real implementation would need logic to decide between $or and $and
@@ -358,6 +435,8 @@ def format_filter_node(state: FilterGenerationState) -> Dict:
         print(f"  > (Stub) Combined conditions with $or: {final_filter}")
 
     # Update the state with the final formatted filter dictionary
+    # Note: We are overwriting extracted_filters from List[Dict] to Dict here.
+    # This is expected as it's the final format for ChromaDB.
     return {"extracted_filters": final_filter}
 
 # --- End Filter Generation Graph Nodes ---
@@ -367,14 +446,16 @@ def build_filter_graph():
     graph = StateGraph(FilterGenerationState)
 
     # Add nodes
-    graph.add_node("analyze_query", analyze_query_node)
-    graph.add_node("extract_filters", extract_filters_node)
+    # graph.add_node("analyze_query", analyze_query_node) # Removed
+    # graph.add_node("extract_filters", extract_filters_node) # Removed
+    graph.add_node("tool_caller", tool_calling_node) # New node using tools
     graph.add_node("format_filter", format_filter_node)
 
-    # Define edges (simple linear flow for now)
-    graph.set_entry_point("analyze_query")
-    graph.add_edge("analyze_query", "extract_filters")
-    graph.add_edge("extract_filters", "format_filter")
+    # Define edges
+    graph.set_entry_point("tool_caller") # Start with the tool caller
+    # graph.add_edge("analyze_query", "extract_filters") # Removed
+    # graph.add_edge("extract_filters", "format_filter") # Removed
+    graph.add_edge("tool_caller", "format_filter") # Connect tool caller to formatter
     graph.add_edge("format_filter", END) # End the graph flow
 
     # Compile the graph
@@ -394,7 +475,7 @@ def generate_search_filter(query: str) -> Dict:
     initial_state = FilterGenerationState(
         query=query,
         # available_metadata=AVAILABLE_METADATA_FIELDS, # Removed - Not needed for tool-based approach
-        extracted_filters={},
+        extracted_filters=[], # Initialize as empty list, matching the state type hint
         error_message=None
     )
     try:
@@ -402,15 +483,29 @@ def generate_search_filter(query: str) -> Dict:
         # Invoke the graph
         # Add config if needed later, e.g., for recursion limits
         final_state = filter_generation_graph.invoke(initial_state)
+
+        # Check for errors reported by graph nodes
+        if final_state.get("error_message"):
+            print(f"Error during filter generation graph execution: {final_state['error_message']}")
+             # Use Streamlit's warning for non-critical issues during filter generation
+            try:
+                st.warning(f"Filter generation issue: {final_state['error_message']}")
+            except Exception: # Handle cases where st isn't available
+                 pass
+            # Return empty filter on graph execution error
+            return {}
+
         print(f"--- Filter generation graph completed. Final state filters: {final_state.get('extracted_filters')} ---")
+        # The format_filter_node ensures extracted_filters is a Dict at the end
         return final_state.get("extracted_filters", {})
     except Exception as e:
-        # Use Streamlit's error reporting if in a Streamlit context, otherwise print
+        # Catch critical errors during the invoke call itself
+        # Use Streamlit's error reporting for critical errors
         try:
-            st.error(f"Error during filter generation: {e}")
+            st.error(f"Critical error during filter generation invoke: {e}")
         except Exception: # Handle cases where st isn't available
             pass
-        print(f"Error during filter generation: {e}") # Log for debugging
+        print(f"Critical error during filter generation invoke: {e}") # Log for debugging
         return {}
 
 # @st.cache_data # Disabled: filter_dict (dict) is not hashable. Need to convert to hashable type (e.g., sorted tuple) if caching is re-enabled.
