@@ -18,18 +18,23 @@ class RegionInput(BaseModel):
 # common two-letter words are excluded to avoid unintentional matches when not used as state names
 US_STATES = {
     "alabama": "AL", "al": "AL",
+    "bama": "AL",
     "alaska": "AK", "ak": "AK",
     "arizona": "AZ", "az": "AZ",
     "arkansas": "AR", "ar": "AR",
+    "arkie": "AR",
     "california": "CA", "ca": "CA",
+    "cali": "CA",
     "colorado": "CO", "co": "CO",
     "connecticut": "CT", "ct": "CT",
+    "nutmeg state": "CT",
     "delaware": "DE", "de": "DE",
     "florida": "FL", "fl": "FL",
     "georgia": "GA", "ga": "GA",
     "hawaii": "HI", 
     "idaho": "ID", "id": "ID",
     "illinois": "IL", "il": "IL",
+    "hoosier": "IN",
     "indiana": "IN",
     "iowa": "IA", "ia": "IA",
     "kansas": "KS", "ks": "KS",
@@ -38,21 +43,25 @@ US_STATES = {
     "maine": "ME",
     "maryland": "MD", "md": "MD",
     "massachusetts": "MA", "ma": "MA",
+    "mass": "MA",
     "michigan": "MI", "mi": "MI",
     "minnesota": "MN", "mn": "MN",
     "mississippi": "MS", "ms": "MS",
     "missouri": "MO", "mo": "MO",
     "montana": "MT", "mt": "MT",
+    "show me state": "MO",
     "nebraska": "NE", "ne": "NE",
     "nevada": "NV", "nv": "NV",
     "new hampshire": "NH", "nh": "NH",
     "new jersey": "NJ", "nj": "NJ",
+    "jersey": "NJ",
     "new mexico": "NM", "nm": "NM",
     "new york": "NY", "ny": "NY",
     "north carolina": "NC", "nc": "NC",
     "north dakota": "ND", "nd": "ND",
     "ohio": "OH", "oh": "OH",
     "oklahoma": "OK", "ok": "OK",
+    "okie": "OK",
     "oregon": "OR",
     "pennsylvania": "PA", "pa": "PA",
     "rhode island": "RI", "ri": "RI",
@@ -60,12 +69,14 @@ US_STATES = {
     "south dakota": "SD", "sd": "SD",
     "tennessee": "TN", "tn": "TN",
     "texas": "TX", "tx": "TX",
+    "lone star": "TX",
     "utah": "UT", "ut": "UT",
     "vermont": "VT", "vt": "VT",
     "virginia": "VA", "va": "VA",
     "washington": "WA", "wa": "WA",
     "west virginia": "WV", "wv": "WV",
     "wisconsin": "WI", "wi": "WI",
+    "cheesehead": "WI",
     "wyoming": "WY", "wy": "WY"
 }
 
@@ -125,34 +136,61 @@ US_REGIONS = {
     # You could add more specific sub-regions or states mapping to regions if needed.
 }
 
+# Mapping of broader region terms (lowercase) to lists of state codes
+# Used when no specific region from US_REGIONS is matched.
+BROAD_REGIONS_TO_STATES = {
+    "east coast": ["ME", "NH", "MA", "RI", "CT", "NY", "NJ", "PA", "DE", "MD", "VA", "NC", "SC", "GA", "FL"],
+    "eastern seaboard": ["ME", "NH", "MA", "RI", "CT", "NY", "NJ", "PA", "DE", "MD", "VA", "NC", "SC", "GA", "FL"], # Alias
+    "the south": ["VA", "WV", "KY", "NC", "SC", "GA", "FL", "AL", "MS", "TN", "AR", "LA", "TX", "OK"], # Southeast + South Central commonly
+    "southern states": ["VA", "WV", "KY", "NC", "SC", "GA", "FL", "AL", "MS", "TN", "AR", "LA", "TX", "OK"], # Alias
+    # Add other broad regions like "west", "mountain west" etc. if needed
+}
+
 def extract_region_filter(query: str) -> Optional[Dict]:
     """
-    Extracts region filters from a query by looking for US geographic region names or known aliases.
-    Returns a ChromaDB filter condition dictionary if regions are found, otherwise None.
+    Extracts filters from a query based on US geographic regions.
+    - If specific regions (e.g., "New England", "Mid-Atlantic") or their aliases are found,
+      returns a filter for the 'Region' metadata field.
+    - If broader regions (e.g., "East Coast", "South") are found *and* no specific regions are,
+      returns a filter for the 'State' metadata field based on the states in that broad region.
+    - Returns None if no recognized regions are found.
     """
     print(f"  >> [extract_region_filter] Received query: '{query}'")
     query_lower = query.lower()
-    # Use a set to store found canonical region names to avoid duplicates
     found_regions_canonical = set()
+    found_states_from_broad_regions = set()
 
-    # Check for matches in the query using the comprehensive mapping
+    # 1. Check for specific regions (mapped to Region field)
     for key in US_REGIONS.keys():
-        # Use word boundaries to avoid partial matches within words
-        # Handles multi-word keys (like "new england") and single-word keys/aliases
-        pattern = r'\b' + re.escape(key) + r'\b' # Escape keys in case they contain regex special chars
+        pattern = r'\b' + re.escape(key) + r'\b'
         if re.search(pattern, query_lower):
             region_canonical = US_REGIONS[key]
-            print(f"  >> [extract_region_filter] Match found for '{key}', adding canonical region: {region_canonical}")
+            print(f"  >> [extract_region_filter] Match found for specific region term '{key}', adding canonical region: {region_canonical}")
             found_regions_canonical.add(region_canonical)
 
-    print(f"  >> [extract_region_filter] Final found canonical regions (set): {found_regions_canonical}")
+    # 2. If specific regions found, prioritize and return Region filter
     if found_regions_canonical:
-        # Convert set to list for JSON serialization in the filter
         found_regions_list = list(found_regions_canonical)
-        print(f"  >> [extract_region_filter] Found Regions List (canonical): {found_regions_list}")
+        print(f"  >> [extract_region_filter] Prioritizing specific regions. Found Regions List (canonical): {found_regions_list}")
         return {"Region": {"$in": found_regions_list}}
+
+    # 3. If no specific regions, check for broad regions (mapped to State field)
+    print("  >> [extract_region_filter] No specific regions found. Checking for broad regions...")
+    for key in BROAD_REGIONS_TO_STATES.keys():
+        pattern = r'\b' + re.escape(key) + r'\b'
+        if re.search(pattern, query_lower):
+            states = BROAD_REGIONS_TO_STATES[key]
+            print(f"  >> [extract_region_filter] Match found for broad region term '{key}', adding states: {states}")
+            found_states_from_broad_regions.update(states) # Use update for set union
+
+    # 4. If broad region states found, return State filter
+    if found_states_from_broad_regions:
+        found_states_list = sorted(list(found_states_from_broad_regions)) # Sort for consistency
+        print(f"  >> [extract_region_filter] Found states from broad regions: {found_states_list}")
+        return {"State": {"$in": found_states_list}}
     else:
-        print("  >> [extract_region_filter] No regions found, returning None.")
+        # 5. No regions (specific or broad) found
+        print("  >> [extract_region_filter] No specific or broad regions found, returning None.")
         return None
 
 # --- Define LangChain Tools ---
