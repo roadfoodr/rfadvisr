@@ -1,6 +1,7 @@
 from langchain.tools import Tool
 from typing import Optional, Dict, List
 from pydantic import BaseModel, Field
+import re
 
 # --- Input Schemas for Tools ---
 class StateInput(BaseModel):
@@ -13,43 +14,87 @@ class RegionInput(BaseModel):
 
 # --- Stub Tool Implementations ---
 
+# Comprehensive mapping of state names and abbreviations (lowercase) to 2-letter codes (uppercase)
+# common two-letter words are excluded to avoid unintentional matches when not used as state names
+US_STATES = {
+    "alabama": "AL", "al": "AL",
+    "alaska": "AK", "ak": "AK",
+    "arizona": "AZ", "az": "AZ",
+    "arkansas": "AR", "ar": "AR",
+    "california": "CA", "ca": "CA",
+    "colorado": "CO", "co": "CO",
+    "connecticut": "CT", "ct": "CT",
+    "delaware": "DE", "de": "DE",
+    "florida": "FL", "fl": "FL",
+    "georgia": "GA", "ga": "GA",
+    "hawaii": "HI", 
+    "idaho": "ID", "id": "ID",
+    "illinois": "IL", "il": "IL",
+    "indiana": "IN",
+    "iowa": "IA", "ia": "IA",
+    "kansas": "KS", "ks": "KS",
+    "kentucky": "KY", "ky": "KY",
+    "louisiana": "LA", "la": "LA",
+    "maine": "ME",
+    "maryland": "MD", "md": "MD",
+    "massachusetts": "MA", "ma": "MA",
+    "michigan": "MI", "mi": "MI",
+    "minnesota": "MN", "mn": "MN",
+    "mississippi": "MS", "ms": "MS",
+    "missouri": "MO", "mo": "MO",
+    "montana": "MT", "mt": "MT",
+    "nebraska": "NE", "ne": "NE",
+    "nevada": "NV", "nv": "NV",
+    "new hampshire": "NH", "nh": "NH",
+    "new jersey": "NJ", "nj": "NJ",
+    "new mexico": "NM", "nm": "NM",
+    "new york": "NY", "ny": "NY",
+    "north carolina": "NC", "nc": "NC",
+    "north dakota": "ND", "nd": "ND",
+    "ohio": "OH", "oh": "OH",
+    "oklahoma": "OK", "ok": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA", "pa": "PA",
+    "rhode island": "RI", "ri": "RI",
+    "south carolina": "SC", "sc": "SC",
+    "south dakota": "SD", "sd": "SD",
+    "tennessee": "TN", "tn": "TN",
+    "texas": "TX", "tx": "TX",
+    "utah": "UT", "ut": "UT",
+    "vermont": "VT", "vt": "VT",
+    "virginia": "VA", "va": "VA",
+    "washington": "WA", "wa": "WA",
+    "west virginia": "WV", "wv": "WV",
+    "wisconsin": "WI", "wi": "WI",
+    "wyoming": "WY", "wy": "WY"
+}
+
 def extract_state_filter(query: str) -> Optional[Dict]:
     """
-    Stub function to extract state filters.
-    Looks for specific state names or abbreviations in the query.
+    Extracts state filters from a query by looking for US state names or abbreviations.
     Returns a ChromaDB filter condition dictionary if states are found, otherwise None.
     """
     print(f"  >> [extract_state_filter] Received query: '{query}'")
     query_lower = query.lower()
-    print(f"  >> [extract_state_filter] Query lowercased: '{query_lower}'")
-    found_states = []
+    # Use a set to store found state codes to avoid duplicates
+    found_states_codes = set()
 
-    # Simple keyword matching for stub implementation
-    print("  >> [extract_state_filter] Checking for 'new jersey'...")
-    if "new jersey" in query_lower or " nj " in query_lower or query_lower.endswith(" nj"):
-        print("  >> [extract_state_filter] Match found for NJ!")
-        found_states.append("NJ")
+    # Check for matches in the query using the comprehensive mapping
+    for key in US_STATES.keys():
+        # Use word boundaries to avoid partial matches within words (e.g., 'or' in 'oregon')
+        # Handle multi-word keys (like "new jersey") and single-word keys/abbreviations
+        pattern = r'\b' + key + r'\b'
+        if re.search(pattern, query_lower):
+             state_code = US_STATES[key]
+             print(f"  >> [extract_state_filter] Match found for '{key}', adding code: {state_code}")
+             found_states_codes.add(state_code)
 
-    print("  >> [extract_state_filter] Checking for 'california'...")
-    if "california" in query_lower or " ca " in query_lower or query_lower.endswith(" ca"):
-        print("  >> [extract_state_filter] Match found for CA!")
-        found_states.append("CA")
-
-    print("  >> [extract_state_filter] Checking for 'texas'...")
-    if "texas" in query_lower or " tx " in query_lower or query_lower.endswith(" tx"):
-        print("  >> [extract_state_filter] Match found for TX!")
-        found_states.append("TX")
-
-    print("  >> [extract_state_filter] Checking for 'arkansas'...")
-    if "arkansas" in query_lower or " ar " in query_lower or query_lower.endswith(" ar"):
-        print("  >> [extract_state_filter] Match found for AR!")
-        found_states.append("AR")
-    # Add more states or use regex later...
-
-    print(f"  >> [extract_state_filter] Final found_states list: {found_states}")
-    if found_states:
-        print(f"  >> [extract_state_filter] Found States (original print): {found_states}")
-        return {"State": {"$in": found_states}}
+    print(f"  >> [extract_state_filter] Final found state codes (set): {found_states_codes}")
+    if found_states_codes:
+        # Convert set to list for JSON serialization in the filter
+        found_states_list = list(found_states_codes)
+        print(f"  >> [extract_state_filter] Found States List: {found_states_list}")
+        return {"State": {"$in": found_states_list}}
     else:
         print("  >> [extract_state_filter] No states found, returning None.")
         return None
