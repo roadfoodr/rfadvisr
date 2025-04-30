@@ -18,7 +18,8 @@ from filter_tools import filter_tools
 
 # ---> ADDED LANGSMITH IMPORTS <---
 from langsmith import Client
-from langsmith.run_trees import traceable
+from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 # ---> END LANGSMITH IMPORTS <---
 
 # --- LangGraph State Definition ---
@@ -32,14 +33,6 @@ class FilterGenerationState(TypedDict):
 # Constants
 EDITION = '10th'
 
-# Metadata fields available for filtering in ChromaDB
-# (Initially starting with just State and Region)
-# not used in this version
-# AVAILABLE_METADATA_FIELDS = {
-#     "State": "The 2-letter abbreviation for the US state the restaurant is in (e.g., 'NJ', 'CA').",
-#     "Region": "The general region of the US (e.g., 'Northeast', 'South', 'Midwest', 'West')."
-#     # Add other relevant fields later as needed
-# }
 
 # Set up Streamlit page configuration - MUST be the first Streamlit command
 st.set_page_config(
@@ -78,6 +71,129 @@ except Exception as e:
     st.warning(f"Could not initialize LangSmith client: {e}. Feedback logging disabled.")
     print(f"--- LangSmith client initialization failed: {e} ---")
 # ---> END LANGSMITH CLIENT INIT <---
+
+# ---> DEFINE HELPER/PROCESSING FUNCTIONS (Moved Here - Top Level) <--- 
+
+# ---> HELPER TO DISPLAY DETAILED RESULTS (Moved Here) <---   
+def display_detailed_results(search_results, query_input, save_checkbox):
+    output = []
+    for i, doc in enumerate(search_results):
+        output.append(f"## Result {i+1}:\n\n{doc.page_content}\n\n---")
+    
+    display_content = "\n".join(output)
+    
+    # Save to file if requested
+    if save_checkbox:
+        detailed_content = f"Search query: {query_input}\n\n"
+        for i, doc in enumerate(search_results):
+            detailed_content += f"Result {i+1}:\n"
+            detailed_content += f"{doc.page_content}\n"
+            detailed_content += "-" * 50 + "\n\n"
+        
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"search_results_{timestamp}.txt"
+        st.download_button(
+            label="Download Results",
+            data=detailed_content,
+            file_name=filename,
+            mime="text/plain"
+        )
+    
+    st.markdown(display_content)
+# ---> END HELPER FUNCTION <--- 
+
+# ---> DECORATED FUNCTION FOR SEARCH PROCESSING (Moved Here) <---    
+@traceable(name="user_query_processing", run_type="chain") # <-- Re-enable this
+def handle_search_request(query_input, num_results, pre_filter_checkbox, generate_article_checkbox, save_checkbox):
+    """Handles the main logic for search, filtering, summarization, and display."""
+    try:
+        # Capture run_id inside the traceable function using get_current_run_tree
+        run_tree = get_current_run_tree() # <-- Re-enable this
+        if run_tree: # <-- Re-enable this
+            current_run_id = run_tree.id # <-- Re-enable this
+            st.session_state.current_run_id = str(current_run_id) # Store as string # <-- Re-enable this
+            print(f"--- Captured LangSmith run_id (inside traceable): {st.session_state.current_run_id} ---") # <-- Re-enable this
+        else: # <-- Re-enable this
+            print("--- Failed to get run_tree inside traceable function ---") # <-- Re-enable this
+            st.session_state.current_run_id = None # Ensure it's None if not captured # <-- Re-enable this
+
+        # ---> GUARDRAIL CHECK <-----
+        if is_query_in_scope(query_input):
+            # Query is IN SCOPE, proceed with processing
+            with st.spinner("Analyzing query and searching for restaurants..."): 
+                generated_filter = {} # Initialize filter as empty
+                # 1. Generate filter using LangGraph ONLY if checkbox is checked
+                if pre_filter_checkbox:
+                    generated_filter = generate_search_filter(query_input)
+                else:
+                    print("--- Skipping pre-filtering step as requested ---")
+
+                # 2. Perform the search, passing the (potentially empty) generated filter
+                search_results = perform_search(
+                    query_input,
+                    num_results,
+                    filter_dict=generated_filter
+                )
+
+                if search_results:
+                    # Process and display results based on user preferences
+                    if generate_article_checkbox:
+                        # Extract full content for summarization
+                        full_content = "\n\n".join([doc.page_content for doc in search_results])
+                        
+                        # Generate the single summary (advanced prompt, base model)
+                        with st.spinner("Generating summary..."): 
+                            summary_result = generate_summary(query_input, full_content, search_results)
+                        
+                        # Display the summary
+                        display_summary(summary_result)
+                        
+                        # Save summary if requested
+                        if save_checkbox:
+                            download_content = prepare_download_content_for_summaries(query_input, summary_result)
+                            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                            filename = f"search_results_summary_{timestamp}.txt"
+                            st.download_button(
+                                label="Download Summary",
+                                data=download_content,
+                                file_name=filename,
+                                mime="text/plain"
+                            )
+                    else:
+                        # Display detailed results
+                        display_detailed_results(search_results, query_input, save_checkbox)
+
+                else:
+                    st.info("No results found matching your query and filters.")
+
+                # Optional: Display the generated filter for debugging
+                if generated_filter:
+                    st.sidebar.subheader("Generated Filter (Debug)")
+                    st.sidebar.json(generated_filter)
+                else:
+                    st.sidebar.subheader("Generated Filter (Debug)")
+                    st.sidebar.json({"info": "No filter generated"})
+                
+                # Display Guardrail Raw Result (Debug)
+                if 'last_guardrail_result' in st.session_state:
+                    st.sidebar.subheader("Guardrail Result (Debug)")
+                    st.sidebar.text(st.session_state.last_guardrail_result)
+        else:
+            # Query is OUT OF SCOPE
+            st.error("Sorry, I can only answer questions about restaurants and food based on the Roadfood guide. Please try a different query.")
+            # Display Guardrail Raw Result even when out of scope
+            if 'last_guardrail_result' in st.session_state:
+                st.sidebar.subheader("Guardrail Result (Debug)")
+                st.sidebar.text(st.session_state.last_guardrail_result)
+
+    except Exception as e:
+        # Catch errors during the main decorated function execution
+        st.error(f"An error occurred during processing: {e}")
+        print(f"--- Error within handle_search_request: {e} ---")
+        # Error is automatically logged by the @traceable decorator
+# ---> END DECORATED FUNCTION <---        
+
+# ---> END HELPER/PROCESSING FUNCTIONS <--- 
 
 MODEL_EMBEDDING = 'text-embedding-ada-002'
 LLM_MODEL = 'gpt-3.5-turbo'
@@ -734,109 +850,20 @@ if search_submitted:
     else:
         # Wrap the entire query processing in a traceable block
         try:
-            with traceable("user_query_processing", 
-                           run_type="chain", 
-                           project_name=os.environ.get('LANGSMITH_PROJECT', 'rf_search_app_10th')) as run_context:
-                
-                st.session_state.current_run_id = run_context.id # Capture run_id early
-                print(f"--- Captured LangSmith run_id: {st.session_state.current_run_id} ---")
+            # ---> CALL THE DECORATED FUNCTION <--- 
+            handle_search_request(
+                query_input=query_input,
+                num_results=num_results,
+                pre_filter_checkbox=pre_filter_checkbox,
+                generate_article_checkbox=generate_article_checkbox,
+                save_checkbox=save_checkbox
+            )
+            # --- END CALL --- 
 
-                # ---> GUARDRAIL CHECK <-----
-                if is_query_in_scope(query_input):
-                    # Query is IN SCOPE, proceed with processing
-                    with st.spinner("Analyzing query and searching for restaurants..."): # Updated spinner message
-                        generated_filter = {} # Initialize filter as empty
-                        # 1. Generate filter using LangGraph ONLY if checkbox is checked
-                        if pre_filter_checkbox:
-                            generated_filter = generate_search_filter(query_input)
-                        else:
-                             print("--- Skipping pre-filtering step as requested ---") # Added log message
-
-                        # 2. Perform the search, passing the (potentially empty) generated filter
-                        search_results = perform_search(
-                            query_input,
-                            num_results,
-                            filter_dict=generated_filter # Pass the filter here
-                        )
-
-                        if search_results:
-                            # Process and display results based on user preferences
-                            if generate_article_checkbox:
-                                # Extract full content for summarization
-                                full_content = "\n\n".join([doc.page_content for doc in search_results])
-                                
-                                # Generate the single summary (advanced prompt, base model)
-                                with st.spinner("Generating summary..."): 
-                                    summary_result = generate_summary(query_input, full_content, search_results)
-                                
-                                # Display the summary
-                                display_summary(summary_result)
-                                
-                                # Save summary if requested
-                                if save_checkbox:
-                                    download_content = prepare_download_content_for_summaries(query_input, summary_result)
-                                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                                    filename = f"search_results_summary_{timestamp}.txt"
-                                    st.download_button(
-                                        label="Download Summary",
-                                        data=download_content,
-                                        file_name=filename,
-                                        mime="text/plain"
-                                    )
-                            else:
-                                # Display detailed results
-                                output = []
-                                for i, doc in enumerate(search_results):
-                                    output.append(f"## Result {i+1}:\n\n{doc.page_content}\n\n---")
-                                
-                                display_content = "\n".join(output)
-                                
-                                # Save to file if requested
-                                if save_checkbox:
-                                    detailed_content = f"Search query: {query_input}\n\n"
-                                    for i, doc in enumerate(search_results):
-                                        detailed_content += f"Result {i+1}:\n"
-                                        detailed_content += f"{doc.page_content}\n"
-                                        detailed_content += "-" * 50 + "\n\n"
-                                    
-                                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                                    filename = f"search_results_{timestamp}.txt"
-                                    st.download_button(
-                                        label="Download Results",
-                                        data=detailed_content,
-                                        file_name=filename,
-                                        mime="text/plain"
-                                    )
-                                
-                                st.markdown(display_content)
-                        else:
-                             st.info("No results found matching your query and filters.") # Added mention of filters
-
-                        # Optional: Display the generated filter for debugging
-                        # Consider moving this or making it conditional later
-                        if generated_filter:
-                            st.sidebar.subheader("Generated Filter (Debug)")
-                            st.sidebar.json(generated_filter)
-                        else:
-                            st.sidebar.subheader("Generated Filter (Debug)")
-                            st.sidebar.json({"info": "No filter generated"})
-                        
-                        # Display Guardrail Raw Result (Debug)
-                        if 'last_guardrail_result' in st.session_state:
-                            st.sidebar.subheader("Guardrail Result (Debug)")
-                            st.sidebar.text(st.session_state.last_guardrail_result)
-                else:
-                    # Query is OUT OF SCOPE
-                    st.error("Sorry, I can only answer questions about restaurants and food based on the Roadfood guide. Please try a different query.")
-                    # Display Guardrail Raw Result even when out of scope
-                    if 'last_guardrail_result' in st.session_state:
-                        st.sidebar.subheader("Guardrail Result (Debug)")
-                        st.sidebar.text(st.session_state.last_guardrail_result)
-            
-            # ---> ADD FEEDBACK FORM DISPLAY LOGIC <---            
+            # ---> FEEDBACK FORM LOGIC (Remains outside decorated function) <---            
             if st.session_state.current_run_id and not st.session_state.feedback_submitted:
                 st.divider()
-                st.subheader("Was this response helpful?")
+                st.subheader("Was this a successful response?")
                 
                 feedback_cols = st.columns([1, 1, 8]) # Adjust column ratios as needed
                 with feedback_cols[0]:
@@ -896,16 +923,10 @@ if search_submitted:
             # ---> END FEEDBACK FORM DISPLAY LOGIC <---
 
         except Exception as e:
-            # Catch errors during the main traceable block execution
+            # Catch errors during the main decorated function execution
             st.error(f"An error occurred during processing: {e}")
-            print(f"--- Error within traceable block: {e} ---")
-            # Optionally log error to LangSmith run if context is available
-            if 'run_context' in locals() and run_context:
-                 try:
-                     run_context.end(error=str(e))
-                     print(f"--- Logged error to LangSmith run {run_context.id} ---")
-                 except Exception as log_e:
-                     print(f"--- Failed to log error to LangSmith run: {log_e} ---")
+            print(f"--- Error within handle_search_request: {e} ---")
+            # Error is automatically logged by the @traceable decorator
 
 # Display some information about the app
 with st.expander("About this app"):
