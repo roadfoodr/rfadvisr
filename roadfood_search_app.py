@@ -625,10 +625,12 @@ with st.sidebar:
             step=1
         )
         
+        pre_filter_checkbox = st.checkbox("Pre-filter results", value=True)
+        
         generate_article_checkbox = st.checkbox("Generate summary article", value=True)
         
         save_checkbox = st.checkbox("Enable download option", value=False)
-        
+
         # Form submit button
         search_submitted = st.form_submit_button("Search")
 
@@ -638,10 +640,14 @@ if search_submitted:
         st.warning("Please enter a search query.")
     else:
         with st.spinner("Analyzing query and searching for restaurants..."): # Updated spinner message
-            # 1. Generate filter using LangGraph (stub version for now)
-            generated_filter = generate_search_filter(query_input)
+            generated_filter = {} # Initialize filter as empty
+            # 1. Generate filter using LangGraph ONLY if checkbox is checked
+            if pre_filter_checkbox:
+                generated_filter = generate_search_filter(query_input)
+            else:
+                 print("--- Skipping pre-filtering step as requested ---") # Added log message
 
-            # 2. Perform the search, passing the generated filter
+            # 2. Perform the search, passing the (potentially empty) generated filter
             search_results = perform_search(
                 query_input,
                 num_results,
