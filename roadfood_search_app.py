@@ -105,92 +105,71 @@ def display_detailed_results(search_results, query_input, save_checkbox):
 # ---> DECORATED FUNCTION FOR SEARCH PROCESSING (Moved Here) <---    
 @traceable(name="user_query_processing", run_type="chain") # <-- Re-enable this
 def handle_search_request(query_input, num_results, pre_filter_checkbox, generate_article_checkbox, save_checkbox):
-    """Handles the main logic for search, filtering, summarization, and display."""
+    """Handles the main logic for search, filtering, summarization. Returns results and metadata.""" # <-- Updated docstring
+    results_dict = {
+        "run_id": None,
+        "query": query_input,
+        "summary_result": None,
+        "search_results": None,
+        "generate_article_mode": generate_article_checkbox,
+        "save_mode": save_checkbox,
+        "error_message": None,
+        "info_message": None
+    }
     try:
         # Capture run_id inside the traceable function using get_current_run_tree
-        run_tree = get_current_run_tree() # <-- Re-enable this
-        if run_tree: # <-- Re-enable this
-            current_run_id = run_tree.id # <-- Re-enable this
-            st.session_state.current_run_id = str(current_run_id) # Store as string # <-- Re-enable this
-            print(f"--- Captured LangSmith run_id (inside traceable): {st.session_state.current_run_id} ---") # <-- Re-enable this
-        else: # <-- Re-enable this
-            print("--- Failed to get run_tree inside traceable function ---") # <-- Re-enable this
-            st.session_state.current_run_id = None # Ensure it's None if not captured # <-- Re-enable this
+        run_tree = get_current_run_tree() 
+        if run_tree: 
+            current_run_id = run_tree.id 
+            results_dict["run_id"] = str(current_run_id)
+            print(f"--- Captured LangSmith run_id (inside traceable): {results_dict['run_id']} ---") 
+        else: 
+            print("--- Failed to get run_tree inside traceable function ---") 
+            # Allow processing to continue, but feedback won't work
 
         # ---> GUARDRAIL CHECK <-----
         if is_query_in_scope(query_input):
             # Query is IN SCOPE, proceed with processing
             with st.spinner("Analyzing query and searching for restaurants..."): 
-                generated_filter = {} # Initialize filter as empty
-                # 1. Generate filter using LangGraph ONLY if checkbox is checked
+                generated_filter = {} 
                 if pre_filter_checkbox:
                     generated_filter = generate_search_filter(query_input)
                 else:
                     print("--- Skipping pre-filtering step as requested ---")
 
-                # 2. Perform the search, passing the (potentially empty) generated filter
-                search_results = perform_search(
+                search_docs = perform_search(
                     query_input,
                     num_results,
                     filter_dict=generated_filter
                 )
+                results_dict["search_results"] = search_docs # Store raw results
 
-                if search_results:
-                    # Process and display results based on user preferences
+                if search_docs:
                     if generate_article_checkbox:
-                        # Extract full content for summarization
-                        full_content = "\n\n".join([doc.page_content for doc in search_results])
-                        
-                        # Generate the single summary (advanced prompt, base model)
+                        full_content = "\n\n".join([doc.page_content for doc in search_docs])
                         with st.spinner("Generating summary..."): 
-                            summary_result = generate_summary(query_input, full_content, search_results)
-                        
-                        # Display the summary
-                        display_summary(summary_result)
-                        
-                        # Save summary if requested
-                        if save_checkbox:
-                            download_content = prepare_download_content_for_summaries(query_input, summary_result)
-                            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                            filename = f"search_results_summary_{timestamp}.txt"
-                            st.download_button(
-                                label="Download Summary",
-                                data=download_content,
-                                file_name=filename,
-                                mime="text/plain"
-                            )
-                    else:
-                        # Display detailed results
-                        display_detailed_results(search_results, query_input, save_checkbox)
-
+                            summary_result = generate_summary(query_input, full_content, search_docs)
+                        results_dict["summary_result"] = summary_result # Store summary
+                        # --- Remove display logic --- 
+                    # else: 
+                        # --- Remove display logic --- 
                 else:
-                    st.info("No results found matching your query and filters.")
+                    results_dict["info_message"] = "No results found matching your query and filters."
+                    # --- Remove st.info call --- 
 
-                # Optional: Display the generated filter for debugging
-                if generated_filter:
-                    st.sidebar.subheader("Generated Filter (Debug)")
-                    st.sidebar.json(generated_filter)
-                else:
-                    st.sidebar.subheader("Generated Filter (Debug)")
-                    st.sidebar.json({"info": "No filter generated"})
-                
-                # Display Guardrail Raw Result (Debug)
-                if 'last_guardrail_result' in st.session_state:
-                    st.sidebar.subheader("Guardrail Result (Debug)")
-                    st.sidebar.text(st.session_state.last_guardrail_result)
+                # --- Remove sidebar filter/guardrail display logic --- 
+
         else:
             # Query is OUT OF SCOPE
-            st.error("Sorry, I can only answer questions about restaurants and food based on the Roadfood guide. Please try a different query.")
-            # Display Guardrail Raw Result even when out of scope
-            if 'last_guardrail_result' in st.session_state:
-                st.sidebar.subheader("Guardrail Result (Debug)")
-                st.sidebar.text(st.session_state.last_guardrail_result)
+            results_dict["error_message"] = "Sorry, I can only answer questions about restaurants and food based on the Roadfood guide. Please try a different query."
+            # --- Remove st.error call & sidebar display --- 
 
     except Exception as e:
-        # Catch errors during the main decorated function execution
-        st.error(f"An error occurred during processing: {e}")
         print(f"--- Error within handle_search_request: {e} ---")
-        # Error is automatically logged by the @traceable decorator
+        results_dict["error_message"] = f"An error occurred during processing: {e}"
+        # Error is automatically logged by the @traceable decorator, but capture for display
+    
+    return results_dict # <-- Return the dictionary
 # ---> END DECORATED FUNCTION <---        
 
 # ---> END HELPER/PROCESSING FUNCTIONS <--- 
@@ -839,94 +818,185 @@ if 'feedback_submitted' not in st.session_state:
 if 'current_run_id' not in st.session_state:
     st.session_state.current_run_id = None
 
+# Session state to preserve results across feedback interactions
+if 'last_query' not in st.session_state:
+    st.session_state.last_query = None
+if 'last_summary' not in st.session_state:
+    st.session_state.last_summary = None
+if 'last_detailed_results' not in st.session_state:
+    st.session_state.last_detailed_results = []
+if 'last_generate_article_mode' not in st.session_state:
+    st.session_state.last_generate_article_mode = False
+if 'last_save_mode' not in st.session_state:
+    st.session_state.last_save_mode = False
+if 'last_current_run_id' not in st.session_state:
+    st.session_state.last_current_run_id = None
+
 # Main content area - only process when form is submitted
 if search_submitted:
-    # Reset feedback state for new search
+    # Reset feedback state and clear previous results for new search
     st.session_state.feedback_submitted = False
-    st.session_state.current_run_id = None
+    st.session_state.feedback_score = None
+    st.session_state.feedback_comment = ""
+    st.session_state.last_query = None
+    st.session_state.last_summary = None
+    st.session_state.last_detailed_results = []
+    st.session_state.last_generate_article_mode = False
+    st.session_state.last_save_mode = False
+    st.session_state.last_current_run_id = None
 
     if not query_input.strip():
         st.warning("Please enter a search query.")
     else:
-        # Wrap the entire query processing in a traceable block
-        try:
-            # ---> CALL THE DECORATED FUNCTION <--- 
-            handle_search_request(
-                query_input=query_input,
-                num_results=num_results,
-                pre_filter_checkbox=pre_filter_checkbox,
-                generate_article_checkbox=generate_article_checkbox,
-                save_checkbox=save_checkbox
+        # Execute the search logic
+        search_outcome = handle_search_request(
+            query_input=query_input,
+            num_results=num_results,
+            pre_filter_checkbox=pre_filter_checkbox,
+            generate_article_checkbox=generate_article_checkbox,
+            save_checkbox=save_checkbox
+        )
+
+        # Store results in session state if successful
+        if search_outcome and not search_outcome.get("error_message"):
+            st.session_state.last_query = search_outcome["query"]
+            st.session_state.last_summary = search_outcome.get("summary_result")
+            st.session_state.last_detailed_results = search_outcome.get("search_results", [])
+            st.session_state.last_generate_article_mode = search_outcome["generate_article_mode"]
+            st.session_state.last_save_mode = search_outcome["save_mode"]
+            st.session_state.last_current_run_id = search_outcome.get("run_id")
+            # Store info message if present
+            st.session_state.last_info_message = search_outcome.get("info_message") 
+            st.session_state.last_error_message = None # Clear any previous error
+        elif search_outcome:
+            # Store error message if search failed
+            st.session_state.last_error_message = search_outcome.get("error_message")
+            st.session_state.last_query = query_input # Store query even on error for context
+        else:
+             st.session_state.last_error_message = "An unexpected error occurred in handle_search_request."
+             st.session_state.last_query = query_input
+        
+        # Trigger immediate rerun to display results from session state
+        st.rerun()
+
+# --- Display results and feedback form (runs on initial load and after search/feedback actions) ---
+if st.session_state.get('last_query'):
+    # Display any stored error message
+    if st.session_state.get('last_error_message'):
+        st.error(st.session_state.last_error_message)
+        # Display Guardrail info if available even on error
+        if 'last_guardrail_result' in st.session_state:
+            st.sidebar.subheader("Guardrail Result (Debug)")
+            st.sidebar.text(st.session_state.last_guardrail_result)
+
+    # Display results if no error
+    elif st.session_state.get('last_generate_article_mode') and st.session_state.get('last_summary'):
+        display_summary(st.session_state.last_summary)
+        if st.session_state.get('last_save_mode'):
+            download_content = prepare_download_content_for_summaries(st.session_state.last_query, st.session_state.last_summary)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"search_results_summary_{timestamp}.txt"
+            st.download_button(
+                label="Download Summary",
+                data=download_content,
+                file_name=filename,
+                mime="text/plain"
             )
-            # --- END CALL --- 
+    elif st.session_state.get('last_detailed_results'):
+        display_detailed_results(
+            st.session_state.last_detailed_results, 
+            st.session_state.last_query, 
+            st.session_state.last_save_mode
+            )
+    elif st.session_state.get('last_info_message'): # Display info message (e.g., "No results")
+         st.info(st.session_state.last_info_message)
+    else:
+        # Should not happen if last_query is set, but as a fallback
+        st.info("No results to display.") 
 
-            # ---> FEEDBACK FORM LOGIC (Remains outside decorated function) <---            
-            if st.session_state.current_run_id and not st.session_state.feedback_submitted:
-                st.divider()
-                st.subheader("Was this a successful response?")
+    # Display debug info from sidebar (moved from handle_search_request)
+    # Consider making this conditional or removing eventually
+    # if generated_filter: # Need to get this from LangGraph run if needed
+    #     st.sidebar.subheader("Generated Filter (Debug)")
+    #     st.sidebar.json(generated_filter)
+    # else:
+    #     st.sidebar.subheader("Generated Filter (Debug)")
+    #     st.sidebar.json({"info": "No filter generated"})
+    if 'last_guardrail_result' in st.session_state and not st.session_state.get('last_error_message'):
+        st.sidebar.subheader("Guardrail Result (Debug)")
+        st.sidebar.text(st.session_state.last_guardrail_result)
+
+    # Display feedback form if results were successfully generated and feedback not submitted
+    run_id_for_feedback = st.session_state.get('last_current_run_id')
+    if run_id_for_feedback and not st.session_state.get('feedback_submitted') and not st.session_state.get('last_error_message'):
+        st.divider()
+        st.subheader("Was this a successful response?")
+        
+        # Use st.columns(2) for Yes/No buttons
+        feedback_button_cols = st.columns(2)
+        with feedback_button_cols[0]:
+            if st.button("👍 Yes", key="feedback_yes", use_container_width=True): 
+                score = 1
+                st.session_state.feedback_score = score
+                # Rerun needed to update potential display changes based on score? Maybe not.
+                # st.rerun()
                 
-                feedback_cols = st.columns([1, 1, 8]) # Adjust column ratios as needed
-                with feedback_cols[0]:
-                    if st.button("👍 Yes", key="feedback_yes"):
-                        score = 1
-                        st.session_state.feedback_score = score
-                        # Submit immediately if no comment needed, or wait for text + button
-                        # For simplicity, let's require the submit button even for just thumbs up/down
-                        
-                with feedback_cols[1]:
-                    if st.button("👎 No", key="feedback_no"):
-                        score = 0
-                        st.session_state.feedback_score = score
-                        # Same as above
-                
-                # Store comment in session state to preserve across reruns from button clicks
-                if 'feedback_comment' not in st.session_state:
+        with feedback_button_cols[1]:
+            if st.button("👎 No", key="feedback_no", use_container_width=True): 
+                score = 0
+                st.session_state.feedback_score = score
+                # st.rerun()
+        
+        # Display current selection state (optional)
+        current_score = st.session_state.get('feedback_score')
+        if current_score == 1:
+            st.write("✔️ You rated this helpful.")
+        elif current_score == 0:
+            st.write("❌ You rated this not helpful.")
+
+        # Place text area and submit button below columns
+        if 'feedback_comment' not in st.session_state:
+            st.session_state.feedback_comment = ""
+        
+        st.session_state.feedback_comment = st.text_area(
+            "Reason for rating (optional):", 
+            key="feedback_comment_input",
+            value=st.session_state.feedback_comment 
+        )
+
+        if st.button("Submit Feedback", key="feedback_submit"):
+            score = st.session_state.get('feedback_score', None) 
+            comment = st.session_state.feedback_comment
+            # Use the run_id stored in session state
+            run_id = run_id_for_feedback 
+            
+            if score is None:
+                st.warning("Please select '👍 Yes' or '👎 No' before submitting.")
+            elif ls_client and run_id:
+                try:
+                    ls_client.create_feedback(
+                        run_id=run_id,
+                        key="user_feedback", 
+                        score=score,
+                        comment=comment if comment else None, 
+                        source_type="user" 
+                    )
+                    st.success("Feedback submitted successfully! Thank you.")
+                    st.session_state.feedback_submitted = True
+                    # Clear form state immediately
+                    st.session_state.feedback_score = None
                     st.session_state.feedback_comment = ""
-                
-                st.session_state.feedback_comment = st.text_area(
-                    "Reason for rating (optional):", 
-                    key="feedback_comment_input",
-                    value=st.session_state.feedback_comment # Use session state value
-                )
-
-                if st.button("Submit Feedback", key="feedback_submit"):
-                    score = st.session_state.get('feedback_score', None) # Get score saved by Yes/No buttons
-                    comment = st.session_state.feedback_comment
-                    run_id = st.session_state.current_run_id
-                    
-                    if score is None:
-                        st.warning("Please select '👍 Yes' or '👎 No' before submitting.")
-                    elif ls_client and run_id:
-                        try:
-                            ls_client.create_feedback(
-                                run_id=run_id,
-                                key="user_feedback", # Use a key for the feedback type
-                                score=score,
-                                comment=comment if comment else None, # Don't send empty string
-                                source_type="user" # Indicate source
-                            )
-                            st.success("Feedback submitted successfully! Thank you.")
-                            st.session_state.feedback_submitted = True
-                            # Clear form state
-                            del st.session_state.feedback_score
-                            st.session_state.feedback_comment = ""
-                            st.rerun() # Rerun to hide the form
-                        except Exception as fb_error:
-                            st.error(f"Failed to submit feedback: {fb_error}")
-                            print(f"--- Error submitting feedback to LangSmith: {fb_error} ---")
-                    elif not ls_client:
-                         st.warning("LangSmith client not available. Feedback not submitted.")
-                    else:
-                         st.error("Could not find the Run ID. Feedback not submitted.")
-            elif st.session_state.feedback_submitted:
-                st.success("Feedback for this search has been submitted. Thank you!")
-            # ---> END FEEDBACK FORM DISPLAY LOGIC <---
-
-        except Exception as e:
-            # Catch errors during the main decorated function execution
-            st.error(f"An error occurred during processing: {e}")
-            print(f"--- Error within handle_search_request: {e} ---")
-            # Error is automatically logged by the @traceable decorator
+                    st.rerun() # Rerun to hide the form/show success message clearly
+                except Exception as fb_error:
+                    st.error(f"Failed to submit feedback: {fb_error}")
+                    print(f"--- Error submitting feedback to LangSmith: {fb_error} ---")
+            elif not ls_client:
+                 st.warning("LangSmith client not available. Feedback not submitted.")
+            else: # Should not happen if we got here
+                 st.error("Could not find the Run ID. Feedback not submitted.")
+    elif st.session_state.get('feedback_submitted'):
+        # Optionally show persistent success message if feedback was submitted for the last query
+        st.success("Feedback for this search has been submitted. Thank you!")
 
 # Display some information about the app
 with st.expander("About this app"):
