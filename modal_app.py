@@ -13,13 +13,18 @@ streamlit_script_remote_path = "/root/roadfood_search_app.py"
 image = (
     modal.Image.debian_slim(python_version="3.10")
     .pip_install(
-        "streamlit>=1.24.0",
-        "langchain-openai>=0.0.2",
-        "langchain-chroma>=0.0.1",
-        "langchain>=0.0.267",
-        "pyyaml>=6.0",
+        "streamlit>=1.45.0",
+        "langchain>=0.3.24",
+        "langchain-openai>=0.3.14",
+        "langchain-core>=0.3.56",
+        "langchain-chroma>=0.2.2",
+        "langgraph>=0.4.0",
         "openai>=1.3.0",
+        "pyyaml>=6.0",
         "chromadb>=0.4.18",
+        "modal>=0.53.3",
+        "pydantic==2.9.2",
+        "pydantic-core>=2.23.4",
     )
     .add_local_file(
         streamlit_script_local_path,

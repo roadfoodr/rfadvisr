@@ -10,9 +10,27 @@ from langchain.prompts import ChatPromptTemplate
 from langchain.schema import Document
 import re
 from pathlib import Path
+from typing import TypedDict, Dict, Optional
+from langgraph.graph import StateGraph, END
+
+# --- LangGraph State Definition ---
+class FilterGenerationState(TypedDict):
+    """Represents the state of our filter generation graph."""
+    query: str                   # Original user query
+    available_metadata: Dict[str, str] # Schema description
+    extracted_filters: Dict      # Accumulating ChromaDB 'where' filter
+    error_message: Optional[str] # To capture errors during generation
 
 # Constants
 EDITION = '10th'
+
+# Metadata fields available for filtering in ChromaDB
+# (Initially starting with just State and Region)
+AVAILABLE_METADATA_FIELDS = {
+    "State": "The 2-letter abbreviation for the US state the restaurant is in (e.g., 'NJ', 'CA').",
+    "Region": "The general region of the US (e.g., 'Northeast', 'South', 'Midwest', 'West')."
+    # Add other relevant fields later as needed
+}
 
 # Set up Streamlit page configuration - MUST be the first Streamlit command
 st.set_page_config(
@@ -307,20 +325,155 @@ def generate_summary(query, full_content, search_results):
     
     return processed_summary
 
-@st.cache_data
-def perform_search(query, num_results):
-    """Perform the vector search and return results"""
+# --- Filter Generation Graph Nodes (Stubs) ---
+
+def analyze_query_node(state: FilterGenerationState) -> Dict:
+    """
+    STUB: Analyzes the query to identify potential filter types.
+    (Later: Use LLM to suggest which fields might be relevant)
+    """
+    print(f"--- (Stub) ANALYZING QUERY: {state['query']} ---")
+    # No state update needed in this stub version
+    return {}
+
+def extract_filters_node(state: FilterGenerationState) -> Dict:
+    """
+    STUB: Attempts to extract filter values based on query and available metadata.
+    Uses the $in operator for flexibility.
+    (Later: Use LLM with specific instructions)
+    """
+    print(f"--- (Stub) EXTRACTING FILTERS for query: {state['query']} ---")
+    query = state['query'].lower()
+    available_metadata = state['available_metadata']
+    extracted = {}
+
+    # --- State Extraction ---
+    if "State" in available_metadata:
+        found_states = []
+        # Example: Look for 2-letter state codes or full names
+        if "new jersey" in query or " nj " in query or query.endswith(" nj"):
+            found_states.append("NJ")
+        if "california" in query or " ca " in query or query.endswith(" ca"):
+            found_states.append("CA")
+        if "texas" in query or " tx " in query or query.endswith(" tx"):
+            found_states.append("TX")
+        if "arkansas" in query or " ar " in query or query.endswith(" ar"):
+            found_states.append("AR")
+        # Add more states or use regex later...
+
+        if found_states:
+            extracted["State"] = {"$in": found_states}
+
+    # --- Region Extraction ---
+    if "Region" in available_metadata:
+        found_regions = []
+        # Example: Look for region names
+        if "new england" in query:
+            found_regions.append("New England")
+        if "west coast" in query:
+             found_regions.append("West Coast") # Corrected typo: West Coast
+        if "mid-atlantic" in query or "mid atlantic" in query: # Handle with/without hyphen
+            found_regions.append("Mid-Atlantic")
+        if "south" in query: # Be careful, "south" is broad
+            found_regions.append("South")
+        # Add more regions...
+
+        if found_regions:
+            extracted["Region"] = {"$in": found_regions}
+
+
+    print(f"  > (Stub) Extracted: {extracted}")
+
+    # Ensure extracted_filters exists and update it
+    current_filters = state.get('extracted_filters', {})
+    current_filters.update(extracted)
+    return {"extracted_filters": current_filters}
+
+def format_filter_node(state: FilterGenerationState) -> Dict:
+    """
+    STUB: Formats the extracted dictionary into the final ChromaDB 'where' clause.
+    (Later: Could handle more complex logic like $and/$or or validation)
+    """
+    print(f"--- (Stub) FORMATTING FILTERS ---")
+    final_filter = state.get('extracted_filters', {})
+    print(f"  > (Stub) Final Filter: {final_filter}")
+    # In this simple case, the format is likely already correct.
+    # We just ensure the state reflects the potentially updated dict.
+    return {"extracted_filters": final_filter}
+
+# --- End Filter Generation Graph Nodes ---
+
+def build_filter_graph():
+    """Builds the LangGraph for filter generation."""
+    graph = StateGraph(FilterGenerationState)
+
+    # Add nodes
+    graph.add_node("analyze_query", analyze_query_node)
+    graph.add_node("extract_filters", extract_filters_node)
+    graph.add_node("format_filter", format_filter_node)
+
+    # Define edges (simple linear flow for now)
+    graph.set_entry_point("analyze_query")
+    graph.add_edge("analyze_query", "extract_filters")
+    graph.add_edge("extract_filters", "format_filter")
+    graph.add_edge("format_filter", END) # End the graph flow
+
+    # Compile the graph
+    print("--- Compiling filter generation graph --- (This should only happen once)")
+    compiled_graph = graph.compile()
+    return compiled_graph
+
+# Instantiate the graph when the script loads
+# Consider caching if graph compilation becomes complex/slow
+filter_generation_graph = build_filter_graph()
+
+def generate_search_filter(query: str) -> Dict:
+    """
+    Runs the LangGraph to generate a ChromaDB 'where' filter from the user query.
+    Returns an empty dictionary if no filters are generated or an error occurs.
+    """
+    initial_state = FilterGenerationState(
+        query=query,
+        available_metadata=AVAILABLE_METADATA_FIELDS, # Use the defined constant
+        extracted_filters={},
+        error_message=None
+    )
+    try:
+        print(f"--- Invoking filter generation graph for query: '{query}' ---")
+        # Invoke the graph
+        # Add config if needed later, e.g., for recursion limits
+        final_state = filter_generation_graph.invoke(initial_state)
+        print(f"--- Filter generation graph completed. Final state filters: {final_state.get('extracted_filters')} ---")
+        return final_state.get("extracted_filters", {})
+    except Exception as e:
+        # Use Streamlit's error reporting if in a Streamlit context, otherwise print
+        try:
+            st.error(f"Error during filter generation: {e}")
+        except Exception: # Handle cases where st isn't available
+            pass
+        print(f"Error during filter generation: {e}") # Log for debugging
+        return {}
+
+# @st.cache_data # Disabled: filter_dict (dict) is not hashable. Need to convert to hashable type (e.g., sorted tuple) if caching is re-enabled.
+def perform_search(query, num_results, filter_dict=None):
+    """Perform the vector search and return results, optionally applying filters."""
     if not query.strip():
         return []
-    
+
+    print("--- Performing search without filter ---")
+
     try:
+        # Call similarity_search using the standard Langchain 'filter' argument
         results = vectorstore.similarity_search(
             query=query,
-            k=num_results
+            k=num_results,
+            filter=filter_dict # Use 'filter' instead of 'where'
         )
         return results
     except Exception as e:
+        # More specific error handling might be needed depending on ChromaDB exceptions
         st.error(f"Error during search: {str(e)}")
+        print(f"Search error: {e}") # Log for debugging
         return []
 
 def prepare_download_content(query, content):
@@ -415,10 +568,17 @@ if search_submitted:
     if not query_input.strip():
         st.warning("Please enter a search query.")
     else:
-        with st.spinner("Searching for restaurants..."):
-            # Perform the search
-            search_results = perform_search(query_input, num_results)
-            
+        with st.spinner("Analyzing query and searching for restaurants..."): # Updated spinner message
+            # 1. Generate filter using LangGraph (stub version for now)
+            generated_filter = generate_search_filter(query_input)
+
+            # 2. Perform the search, passing the generated filter
+            search_results = perform_search(
+                query_input,
+                num_results,
+                filter_dict=generated_filter # Pass the filter here
+            )
+
             if search_results:
                 # Process and display results based on user preferences
                 if generate_article_checkbox:
@@ -469,6 +629,17 @@ if search_submitted:
                         )
                     
                     st.markdown(display_content)
+            else:
+                 st.info("No results found matching your query and filters.") # Added mention of filters
+
+            # Optional: Display the generated filter for debugging
+            # Consider moving this or making it conditional later
+            if generated_filter:
+                st.sidebar.subheader("Generated Filter (Debug)")
+                st.sidebar.json(generated_filter)
+            else:
+                st.sidebar.subheader("Generated Filter (Debug)")
+                st.sidebar.json({"info": "No filter generated"})
 
 # Display some information about the app
 with st.expander("About this app"):
