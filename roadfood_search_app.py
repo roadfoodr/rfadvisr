@@ -13,11 +13,14 @@ from pathlib import Path
 from typing import TypedDict, Dict, Optional
 from langgraph.graph import StateGraph, END
 
+# Import filter tools
+from filter_tools import filter_tools
+
 # --- LangGraph State Definition ---
 class FilterGenerationState(TypedDict):
     """Represents the state of our filter generation graph."""
     query: str                   # Original user query
-    available_metadata: Dict[str, str] # Schema description
+    # available_metadata: Dict[str, str] # Schema description (Removed - Handled by tool descriptions)
     extracted_filters: Dict      # Accumulating ChromaDB 'where' filter
     error_message: Optional[str] # To capture errors during generation
 
@@ -26,11 +29,12 @@ EDITION = '10th'
 
 # Metadata fields available for filtering in ChromaDB
 # (Initially starting with just State and Region)
-AVAILABLE_METADATA_FIELDS = {
-    "State": "The 2-letter abbreviation for the US state the restaurant is in (e.g., 'NJ', 'CA').",
-    "Region": "The general region of the US (e.g., 'Northeast', 'South', 'Midwest', 'West')."
-    # Add other relevant fields later as needed
-}
+# not used in this version
+# AVAILABLE_METADATA_FIELDS = {
+#     "State": "The 2-letter abbreviation for the US state the restaurant is in (e.g., 'NJ', 'CA').",
+#     "Region": "The general region of the US (e.g., 'Northeast', 'South', 'Midwest', 'West')."
+#     # Add other relevant fields later as needed
+# }
 
 # Set up Streamlit page configuration - MUST be the first Streamlit command
 st.set_page_config(
@@ -327,72 +331,9 @@ def generate_summary(query, full_content, search_results):
 
 # --- Filter Generation Graph Nodes (Stubs) ---
 
-def analyze_query_node(state: FilterGenerationState) -> Dict:
-    """
-    STUB: Analyzes the query to identify potential filter types.
-    (Later: Use LLM to suggest which fields might be relevant)
-    """
-    print(f"--- (Stub) ANALYZING QUERY: {state['query']} ---")
-    # No state update needed in this stub version
-    return {}
+# analyze_query_node removed - replaced by tool calling approach
 
-def extract_filters_node(state: FilterGenerationState) -> Dict:
-    """
-    STUB: Attempts to extract filter values based on query and available metadata.
-    Uses the $in operator for flexibility.
-    (Later: Use LLM with specific instructions)
-    """
-    print(f"--- (Stub) EXTRACTING FILTERS for query: {state['query']} ---")
-    query = state['query'].lower()
-    available_metadata = state['available_metadata']
-    # Change: Store conditions as a list
-    conditions = [] # List to hold individual filter dicts
-
-    # --- State Extraction ---
-    if "State" in available_metadata:
-        found_states = []
-        # Example: Look for 2-letter state codes or full names
-        if "new jersey" in query or " nj " in query or query.endswith(" nj"):
-            found_states.append("NJ")
-        if "california" in query or " ca " in query or query.endswith(" ca"):
-            found_states.append("CA")
-        if "texas" in query or " tx " in query or query.endswith(" tx"):
-            found_states.append("TX")
-        if "arkansas" in query or " ar " in query or query.endswith(" ar"):
-            found_states.append("AR")
-        # Add more states or use regex later...
-
-        if found_states:
-            # Change: Append state condition to the list
-            conditions.append({"State": {"$in": found_states}})
-
-    # --- Region Extraction ---
-    if "Region" in available_metadata:
-        found_regions = []
-        # Example: Look for region names
-        if "new england" in query:
-            found_regions.append("New England")
-        if "west coast" in query:
-             found_regions.append("West Coast") # Corrected typo: West Coast
-        if "mid-atlantic" in query or "mid atlantic" in query: # Handle with/without hyphen
-            found_regions.append("Mid-Atlantic")
-        if "south" in query: # Be careful, "south" is broad
-            found_regions.append("South")
-        # Add more regions...
-
-        if found_regions:
-            # Change: Append region condition to the list
-            conditions.append({"Region": {"$in": found_regions}})
-
-    # Add more extraction logic for other fields...
-
-    print(f"  > (Stub) Extracted Conditions: {conditions}")
-
-    # Change: Update state with the list of conditions
-    # We'll combine them with $or/$and in the format_filter_node
-    # Ensure extracted_filters exists (as a list now) and update it
-    # For simplicity in the stub, we'll just overwrite. A real implementation might append.
-    return {"extracted_filters": conditions} # Return the list
+# extract_filters_node removed - replaced by tool calling approach
 
 def format_filter_node(state: FilterGenerationState) -> Dict:
     """
@@ -452,7 +393,7 @@ def generate_search_filter(query: str) -> Dict:
     """
     initial_state = FilterGenerationState(
         query=query,
-        available_metadata=AVAILABLE_METADATA_FIELDS, # Use the defined constant
+        # available_metadata=AVAILABLE_METADATA_FIELDS, # Removed - Not needed for tool-based approach
         extracted_filters={},
         error_message=None
     )
