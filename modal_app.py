@@ -56,7 +56,10 @@ LOCAL_DATA_DIR = Path("data")
         modal.Mount.from_local_dir(LOCAL_PROMPTS_DIR, remote_path="/root/prompts"),
         modal.Mount.from_local_dir(LOCAL_DATA_DIR, remote_path="/root/data"),
     ],
-    secrets=[modal.Secret.from_name("openai-api-key")],
+    secrets=[
+        modal.Secret.from_name("openai-api-key"),
+        modal.Secret.from_name("langsmith-api-key")
+    ],
     timeout=600,
     allow_concurrent_inputs=100,
 )
@@ -64,6 +67,13 @@ LOCAL_DATA_DIR = Path("data")
 def run():
     # Set up environment variables
     os.environ["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY"]
+    
+    if "LANGSMITH_API_KEY" in os.environ:
+        os.environ["LANGSMITH_TRACING"] = "true"
+        os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+        print("--- LangSmith environment variables set for Modal deployment ---")
+    else:
+        print("--- LangSmith API key not found in Modal environment, tracing disabled ---")
     
     # Run Streamlit as a subprocess
     target = shlex.quote(streamlit_script_remote_path)

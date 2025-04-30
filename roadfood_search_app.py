@@ -41,35 +41,75 @@ st.set_page_config(
     layout="wide"
 )
 
-# OPENAI API SETUP
-# Check if running in Modal (environment variable will be set) or locally (use credentials.yml)
-if "OPENAI_API_KEY" not in os.environ:
+# --- API KEY and LANGSMITH SETUP ---
+# Prioritize environment variables (common in deployment like Modal)
+# then fall back to credentials.yml (for local development)
+
+openai_api_key = os.environ.get("OPENAI_API_KEY")
+langsmith_api_key = os.environ.get("LANGSMITH_API_KEY")
+langsmith_endpoint = os.environ.get("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com") # Default endpoint
+langsmith_project = os.environ.get("LANGSMITH_PROJECT", f"rf_search_app_{EDITION}") # Default project
+
+# If keys are not found in environment, try loading from credentials.yml
+if not openai_api_key or not langsmith_api_key:
+    print("--- API keys not found in environment, trying credentials.yml ---")
     try:
-        # Running locally, load from credentials.yml
-        credentials = yaml.safe_load(open('credentials.yml'))
-        os.environ['OPENAI_API_KEY'] = credentials['openai']
-        # ---> ADDED LANGSMITH SETUP <---
-        if 'langsmith' in credentials:
-            os.environ['LANGSMITH_TRACING'] = 'true' # Use LANGSMITH_TRACING as per latest docs
-            os.environ['LANGSMITH_ENDPOINT'] = "https://api.smith.langchain.com"
-            os.environ['LANGSMITH_API_KEY'] = credentials['langsmith']
-            os.environ['LANGSMITH_PROJECT'] = f"rf_search_app_{EDITION}" # Set a project name
-            print("--- LangSmith tracing enabled ---")
+        credentials_path = 'credentials.yml'
+        if os.path.exists(credentials_path):
+            credentials = yaml.safe_load(open(credentials_path))
+            if not openai_api_key:
+                openai_api_key = credentials.get('openai')
+            if not langsmith_api_key:
+                # Only set LangSmith details from file if the key was found there
+                if 'langsmith' in credentials:
+                    langsmith_api_key = credentials['langsmith']
+                    # Allow overriding endpoint/project from file only if not set by env
+                    if "LANGSMITH_ENDPOINT" not in os.environ:
+                        langsmith_endpoint = credentials.get('langsmith_endpoint', langsmith_endpoint)
+                    if "LANGSMITH_PROJECT" not in os.environ:
+                        langsmith_project = credentials.get('langsmith_project', langsmith_project)
+                else:
+                     print("--- LangSmith API key not found in credentials.yml ---")
         else:
-            print("--- LangSmith API key not found in credentials.yml, tracing disabled ---")
-        # ---> END LANGSMITH SETUP <---
+            print(f"--- {credentials_path} not found. ---")
     except Exception as e:
-        st.error(f"Error loading API keys: {str(e)}")
-        st.stop()
+        st.warning(f"Error loading credentials.yml: {str(e)}") # Use warning, don't stop
+
+# Set OpenAI key in environment if found
+if openai_api_key:
+    os.environ['OPENAI_API_KEY'] = openai_api_key
+else:
+    # Critical error if no OpenAI key is available from either source
+    st.error("OpenAI API key not found in environment variables or credentials.yml. Application cannot proceed.")
+    st.stop() # Stop execution if OpenAI key is missing
+
+# Configure LangSmith tracing if the key is available
+if langsmith_api_key:
+    os.environ['LANGSMITH_TRACING'] = 'true'
+    os.environ['LANGSMITH_API_KEY'] = langsmith_api_key
+    os.environ['LANGSMITH_ENDPOINT'] = langsmith_endpoint
+    os.environ['LANGSMITH_PROJECT'] = langsmith_project
+    print(f"--- LangSmith tracing enabled (Project: {langsmith_project}) ---")
+else:
+    # Inform user if LangSmith is disabled
+    print("--- LangSmith API key not found in environment or credentials.yml, tracing disabled ---")
+    # Ensure tracing variable is not set if key is missing
+    if 'LANGSMITH_TRACING' in os.environ:
+        del os.environ['LANGSMITH_TRACING']
 
 # ---> INITIALIZE LANGSMITH CLIENT <---
-try:
-    ls_client = Client()
-    print("--- LangSmith client initialized ---")
-except Exception as e:
-    ls_client = None
-    st.warning(f"Could not initialize LangSmith client: {e}. Feedback logging disabled.")
-    print(f"--- LangSmith client initialization failed: {e} ---")
+# Initialize ONLY if tracing is intended (key was found)
+if os.environ.get('LANGSMITH_TRACING') == 'true':
+    try:
+        ls_client = Client() # Client uses env vars set above
+        print("--- LangSmith client initialized ---")
+    except Exception as e:
+        ls_client = None
+        st.warning(f"Could not initialize LangSmith client: {e}. Feedback logging disabled.")
+        print(f"--- LangSmith client initialization failed: {e} ---")
+else:
+    ls_client = None # Explicitly set to None if tracing is disabled
+    print("--- LangSmith client not initialized as tracing is disabled ---")
 # ---> END LANGSMITH CLIENT INIT <---
 
 # ---> DEFINE HELPER/PROCESSING FUNCTIONS (Moved Here - Top Level) <--- 
