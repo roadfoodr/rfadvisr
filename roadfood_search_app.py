@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from typing import TypedDict, Dict, Optional, List
 from langgraph.graph import StateGraph, END
+import json
 
 # Import filter tools
 from filter_tools import filter_tools
@@ -143,7 +144,7 @@ def display_detailed_results(search_results, query_input, save_checkbox):
 # ---> END HELPER FUNCTION <--- 
 
 # ---> DECORATED FUNCTION FOR SEARCH PROCESSING (Moved Here) <---    
-@traceable(name="user_query_processing", run_type="chain") # <-- Re-enable this
+@traceable(name="RF_search_query", run_type="chain") # <-- Re-enable this
 def handle_search_request(query_input, num_results, pre_filter_checkbox, generate_article_checkbox, save_checkbox):
     """Handles the main logic for search, filtering, summarization. Returns results and metadata.""" # <-- Updated docstring
     results_dict = {
@@ -191,14 +192,8 @@ def handle_search_request(query_input, num_results, pre_filter_checkbox, generat
                         with st.spinner("Generating summary..."): 
                             summary_result = generate_summary(query_input, full_content, search_docs)
                         results_dict["summary_result"] = summary_result # Store summary
-                        # --- Remove display logic --- 
-                    # else: 
-                        # --- Remove display logic --- 
                 else:
                     results_dict["info_message"] = "No results found matching your query and filters."
-                    # --- Remove st.info call --- 
-
-                # --- Remove sidebar filter/guardrail display logic --- 
 
         else:
             # Query is OUT OF SCOPE
@@ -588,8 +583,21 @@ def tool_calling_node(state: FilterGenerationState) -> Dict:
                 # Optionally, update the graph state with an error message here
                 # return {"error_message": f"Failed to execute tool {tool_name}: {e}"}
 
-    print(f"  > Extracted conditions after manual execution: {extracted_conditions}") # MODIFIED print message
-    return {"extracted_filters": extracted_conditions}
+    print(f"  > Raw extracted conditions: {extracted_conditions}") # Log raw conditions
+
+    # Deduplicate the extracted conditions
+    unique_conditions = []
+    seen_conditions = set()
+    for condition in extracted_conditions:
+        # Convert dict to canonical JSON string for comparison
+        condition_str = json.dumps(condition, sort_keys=True)
+        if condition_str not in seen_conditions:
+            unique_conditions.append(condition)
+            seen_conditions.add(condition_str)
+
+    print(f"  > Deduplicated conditions: {unique_conditions}") # Log deduplicated conditions
+
+    return {"extracted_filters": unique_conditions} # Return unique conditions
 
 def format_filter_node(state: FilterGenerationState) -> Dict:
     """
