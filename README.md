@@ -1,30 +1,37 @@
 # Roadfood Advisor
 
-A Streamlit application that allows users to search for restaurants from the Roadfood guide (10th edition) and generate summary articles using OpenAI's language models.
+An AI-powered restaurant discovery app that helps travelers find authentic local eateries from Jane and Michael Stern's *Roadfood* guide (10th edition) using natural language queries.
 
 Live demo: https://rfadvisr.us
 
 ## Features
 
-- Search for restaurants based on cuisine, location, or other criteria
-- Generate summary articles using different prompt types and models
-- Compare results from base and fine-tuned models
-- Download search results and summaries
-
+- **Natural Language Search**: Ask questions like "great BBQ between Austin and Houston" or "classic diners in New England"
+- **Hybrid RAG Architecture**: Combines LLM-parsed structured filters with semantic search on restaurant descriptions
+- **Intelligent Query Routing**: LLM identifies search patterns and routes to specialized tools for location, cuisine, and restaurant type filtering
+- **Automatic Travelogue Generation**: Creates personalized narratives highlighting what makes each recommended restaurant special
+- **Guardrail System**: Ensures queries stay focused on restaurant and food-related searches
+- **Download Options**: Save search results and generated summaries
 
 ## Project Structure
 
-- `rfadvisr_app.py`: The main Streamlit application
+- `roadfood_search_app.py`: Main Streamlit application
+- `filter_tools.py`: LangChain tools for query parsing and filtering
 - `modal_app.py`: Modal deployment configuration
 - `prompts/`: Directory containing prompt templates
-- `data/`: Directory containing the Chroma vector database and other data files
-- `chroma_rf10th/`: Chroma vector database for the 10th edition
+  - `tool_calling_prompt.txt`: System prompt for LLM tool selection
+  - `advanced_summary_prompt.txt`: Template for travelogue generation
+  - `guardrail_prompt.txt`: Scope validation prompt
+- `data/chroma_rf10th/`: ChromaDB vector database containing 1,000+ restaurant embeddings
 
-## Notes
+## Technology Stack
 
-- The app uses a fine-tuned GPT-3.5 model for specialized Roadfood summaries
-- The Chroma database contains vector embeddings of restaurant descriptions for RAG purposes
-- The app is configured to work both locally and in the Modal cloud environment
+- **LangChain/LangGraph**: Orchestration and tool calling
+- **ChromaDB**: Vector database for semantic search
+- **OpenAI**: GPT-3.5-turbo for language processing and content generation
+- **Streamlit**: Web application framework
+- **Modal**: Cloud deployment platform
+- **LangSmith**: Observability and feedback collection
 
 ## Application Flow Diagram
 
