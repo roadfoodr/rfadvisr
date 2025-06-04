@@ -6,8 +6,8 @@ from pathlib import Path
 import modal
 
 # Path to the Streamlit app script
-streamlit_script_local_path = Path("roadfood_search_app.py")
-streamlit_script_remote_path = "/root/roadfood_search_app.py"
+streamlit_script_local_path = Path("rfadvisr_app.py")
+streamlit_script_remote_path = "/root/rfadvisr_app.py"
 filter_tools_local_path = Path("filter_tools.py")
 filter_tools_remote_path = "/root/filter_tools.py"
 
@@ -39,12 +39,12 @@ image = (
 )
 
 # Define the Modal app
-app = modal.App(name="roadfood-search-app", image=image)
+app = modal.App(name="rfadvisr-app", image=image)
 
 # Check if the Streamlit script exists
 if not streamlit_script_local_path.exists():
     raise RuntimeError(
-        "roadfood_search_app.py not found! Make sure the Streamlit app script is in the same directory."
+        "rfadvisr_app.py not found! Make sure the Streamlit app script is in the same directory."
     )
 
 # Mount the local directories that contain necessary files

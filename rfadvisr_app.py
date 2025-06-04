@@ -37,9 +37,10 @@ EDITION = '10th'
 
 # Set up Streamlit page configuration - MUST be the first Streamlit command
 st.set_page_config(
-    page_title=f"Roadfood {EDITION} Edition Search",
+    page_title=f"Roadfood Advisor -- {EDITION} Edition",
     page_icon="🍽️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # --- API KEY and LANGSMITH SETUP ---
@@ -469,6 +470,12 @@ def generate_summary(query, full_content, search_results):
     # Read the ADVANCED prompt template from file
     prompt_text = load_prompt_template("advanced")
     
+    # Debug statement to show which prompt is being used
+    if prompt_text:
+        print("--- Using ADVANCED prompt template from file ---")
+    else:
+        print("--- Using FALLBACK prompt template ---")
+    
     # Fallback to hardcoded prompt if file can't be read
     if not prompt_text:
         # Simplified fallback prompt if needed (though ideally the file load works)
@@ -751,6 +758,13 @@ def display_summary(summary_text):
     Args:
         summary_text: The generated summary text to display
     """
+    # Display feedback message with clickable arrow
+    st.markdown(
+        "⭐ *Your feedback is important to help improve this beta version! "
+        "Please take a moment to rate this response using the buttons at the end of the summary* "
+        "[⬇️](#feedback-section)"
+    )
+    
     # Display the single summary directly
     st.markdown(standardize_summary_headline(summary_text))
 
@@ -805,16 +819,18 @@ def is_query_in_scope(query: str) -> bool:
         return True
 
 # Create Streamlit interface
-st.title(f"Roadfood {EDITION} Edition Restaurant Search")
+st.title(f"Roadfood Advisor -- {EDITION} Edition")
 st.markdown("Search for restaurants based on your preferences, cuisine, location, etc.")
 
 # Example queries outside the form (these don't trigger re-renders)
 example_queries = [
-    "Where is the best BBQ?",
+    "Where is some great BBQ in Texas?",
     "Unique seafood restaurants on the East Coast",
     "Famous diners in New Jersey",
     "Where can I find good pie?",
-    "Historic restaurants with great burgers"
+    "Historic restaurants with great burgers",
+    "Highlighted eateries on the West Coast",
+    "Midwest delicacies"
 ]
 
 # Store the selected example in session state so we can use it in the form
@@ -856,7 +872,9 @@ with st.sidebar:
         
         pre_filter_checkbox = st.checkbox("Pre-filter results", value=True)
         
-        generate_article_checkbox = st.checkbox("Generate summary article", value=True)
+        # Always generate summary - checkbox hidden but functionality preserved
+        generate_article_checkbox = True  # Constant value instead of checkbox
+        # generate_article_checkbox = st.checkbox("Generate summary article", value=True)  # Commented out
         
         save_checkbox = st.checkbox("Enable download option", value=False)
 
@@ -991,7 +1009,7 @@ if st.session_state.get('last_query'):
     run_id_for_feedback = st.session_state.get('last_current_run_id')
     if run_id_for_feedback and not st.session_state.get('feedback_submitted') and not st.session_state.get('last_error_message'):
         st.divider()
-        st.subheader("Was this a successful response?")
+        st.subheader("Was this a successful response?", anchor="feedback-section")
         
         # Use st.columns(2) for Yes/No buttons
         feedback_button_cols = st.columns(2)
@@ -1011,9 +1029,9 @@ if st.session_state.get('last_query'):
         # Display current selection state (optional)
         current_score = st.session_state.get('feedback_score')
         if current_score == 1:
-            st.write("✔️ You rated this helpful.")
+            st.write("✔️ You rated this successful.")
         elif current_score == 0:
-            st.write("❌ You rated this not helpful.")
+            st.write("❌ You rated this not successful.")
 
         # Place text area and submit button below columns
         if 'feedback_comment' not in st.session_state:
@@ -1062,13 +1080,17 @@ if st.session_state.get('last_query'):
 # Display some information about the app
 with st.expander("About this app"):
     st.markdown(f"""
-    This app searches through the Roadfood database ({EDITION} edition) to find restaurants matching your criteria using vector embeddings.
-    
-    When the 'Generate summary article' option is checked, it creates a detailed summary using the search results.
-    
-    The summary includes restaurant names, locations, and highlights what makes them special, based on an advanced prompt template.
-    """)
+    This app helps you discover authentic restaurants from Jane and Michael Stern's *Roadfood* guide 
+    ({EDITION} edition) using natural language queries.
 
+    Simply describe what you're looking for — like "great BBQ in Texas" or "classic diners in New England" — 
+    and the AI will parse your request to find matching restaurants using hybrid search that combines 
+    location filters and restaurant types with semantic similarity.
+
+    The app automatically generates a personalized travelogue highlighting what makes each recommended 
+    restaurant special, perfect for planning your next road trip to discover those colorful, local gems 
+    that make travel memorable.
+    """)
 # Add developer options in a collapsed expander at the bottom of the sidebar
 # with st.sidebar:
 #     with st.expander("Developer Options", expanded=False):
