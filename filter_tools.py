@@ -1,4 +1,5 @@
 from langchain.tools import Tool
+from langchain.tools import StructuredTool
 from typing import Optional, Dict, List
 from pydantic import BaseModel, Field
 import re
@@ -12,6 +13,11 @@ class StateInput(BaseModel):
 class RegionInput(BaseModel):
     """Input schema for the region extractor tool."""
     query: str = Field(description="The user query text potentially containing US geographic region names")
+
+class CityInput(BaseModel):
+    """Input schema for the city extractor tool."""
+    query: str = Field(description="The user query text potentially containing US city names")
+    cities: List[str] = Field(description="List of city names identified in the query by the LLM")
 
 # --- Stub Tool Implementations ---
 
@@ -57,7 +63,7 @@ US_STATES = {
     "new jersey": "NJ", "nj": "NJ",
     "jersey": "NJ",
     "new mexico": "NM", "nm": "NM",
-    "new york": "NY", "ny": "NY",
+    "new york": "NY", "ny": "NY", "ny state": "NY", "new york state": "NY",
     "north carolina": "NC", "nc": "NC",
     "north dakota": "ND", "nd": "ND",
     "ohio": "OH", "oh": "OH",
@@ -70,7 +76,7 @@ US_STATES = {
     "south dakota": "SD", "sd": "SD",
     "tennessee": "TN", "tn": "TN",
     "texas": "TX", "tx": "TX",
-    "lone star": "TX",
+    "lone star": "TX", "lone star state": "TX",
     "utah": "UT", "ut": "UT",
     "vermont": "VT", "vt": "VT",
     "virginia": "VA", "va": "VA",
@@ -126,6 +132,9 @@ US_REGIONS = {
     "mid south": "Mid-South",
     # Midwest
     "midwest": "Midwest",
+    "mid-west": "Midwest",
+    "Mid-west": "Midwest",
+    "Mid-West": "Midwest",
     # New England
     "new england": "New England",
     "northeast": "New England", # Alias
@@ -199,6 +208,24 @@ def extract_region_filter(query: str) -> Optional[Dict]:
         print("  >> [extract_region_filter] No specific or broad regions found, returning None.")
         return None
 
+@traceable(run_type="tool", name="City Extractor Tool")
+def extract_city_filter(query: str, cities: List[str]) -> Optional[Dict]:
+    """
+    Creates a ChromaDB filter condition for the identified cities.
+    Returns a ChromaDB filter condition dictionary if cities are provided, otherwise None.
+    """
+    print(f"  >> [extract_city_filter] Received query: '{query}'")
+    print(f"  >> [extract_city_filter] Received cities: {cities}")
+    
+    if cities:
+        # Remove duplicates while preserving order
+        found_cities = list(dict.fromkeys(cities))
+        print(f"  >> [extract_city_filter] Using cities: {found_cities}")
+        return {"City": {"$in": found_cities}}
+    else:
+        print("  >> [extract_city_filter] No cities provided, returning None.")
+        return None
+
 # --- Define LangChain Tools ---
 
 state_tool = Tool.from_function(
@@ -215,8 +242,15 @@ region_tool = Tool.from_function(
     args_schema=RegionInput
 )
 
+city_tool = StructuredTool.from_function(
+    name="city_extractor",
+    func=extract_city_filter,
+    description="Use this tool *only* if the user query explicitly mentions one or more specific US city names (e.g., 'New York', 'Los Angeles'). The LLM should identify the city names and pass them as a list. Do not use if no city is mentioned. Returns a filter condition for the 'City' metadata field.",
+    args_schema=CityInput
+)
+
 # List of tools to be imported by the main application
-filter_tools: List[Tool] = [state_tool, region_tool]
+filter_tools: List[Tool] = [state_tool, region_tool, city_tool]
 
 # Potential future tools:
 # cuisine_tool = Tool(...)
