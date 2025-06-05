@@ -9,10 +9,51 @@ If the query explicitly mentions a specific US geographic region (e.g., 'West Co
 use the `region_extractor` tool.
 
 If the query explicitly mentions a specific US city name (e.g., 'New York', 'Chicago', 'San Francisco'), 
-you MUST:
-1. First identify and list all city names mentioned in the query
-2. Then use the `city_extractor` tool, passing both the original query and the list of identified cities
-3. Be careful to only include actual city names, not other capitalized words that might appear in the query
-4. If you're unsure whether a word is a city name, do not include it in the list
+you MUST follow these steps EXACTLY:
+
+1. First identify all city names mentioned in the query
+2. For each city, determine if a state is:
+   - Explicitly mentioned with the city (e.g., "Chicago, Illinois" or "Austin, TX")
+   - Can be confidently inferred from context (e.g., "New York" implies New York, NY)
+   - Cannot be determined
+3. BEFORE making the tool call, explain your reasoning:
+   - What cities did you identify?
+   - What states did you identify or infer?
+   - How will you structure the input?
+
+4. Call the city_extractor tool with this EXACT structure:
+   [TOOL CALL EXAMPLE]
+   city_extractor(
+     query: "the original query text"
+     cities: [
+       city: "CityName"
+       state: "ST" (if known or inferred)
+     ]
+   )
+
+   For example, if the query is "great eats in Austin":
+   [EXAMPLE 1]
+   query: "great eats in Austin"
+   cities: [
+     city: "Austin"
+     state: "TX"
+   ]
+
+   For multiple cities like "great eats in Austin, TX and Chicago":
+   [EXAMPLE 2]
+   query: "great eats in Austin, TX and Chicago"
+   cities: [
+     city: "Austin"
+     state: "TX"
+     city: "Chicago"
+     state: "IL"
+   ]
+
+CRITICAL REQUIREMENTS:
+- The input MUST be a Python dictionary with TWO keys: "query" and "cities"
+- The "cities" key MUST contain a list (even if there's only one city)
+- Each item in the cities list MUST be a dictionary with at least a "city" key
+- The "state" key is optional but should be included when known or can be inferred
+- If you're unsure whether a word is a city name, do not include it in the list
 
 If the query asks about something else (like food type, atmosphere) without explicitly naming a state, region, or city that requires filtering, then do not use any tools. 

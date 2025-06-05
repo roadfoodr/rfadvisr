@@ -17,7 +17,7 @@ class RegionInput(BaseModel):
 class CityInput(BaseModel):
     """Input schema for the city extractor tool."""
     query: str = Field(description="The user query text potentially containing US city names")
-    cities: List[str] = Field(description="List of city names identified in the query by the LLM")
+    cities: List[Dict[str, str]] = Field(description="List of dictionaries containing city names and their corresponding state codes (if known)")
 
 # --- Stub Tool Implementations ---
 
@@ -209,22 +209,58 @@ def extract_region_filter(query: str) -> Optional[Dict]:
         return None
 
 @traceable(run_type="tool", name="City Extractor Tool")
-def extract_city_filter(query: str, cities: List[str]) -> Optional[Dict]:
+def extract_city_filter(query: str, cities: List[Dict[str, str]]) -> Optional[Dict]:
     """
-    Creates a ChromaDB filter condition for the identified cities.
+    Creates a ChromaDB filter condition for the identified cities and their states.
     Returns a ChromaDB filter condition dictionary if cities are provided, otherwise None.
+    
+    Args:
+        query: The original user query
+        cities: List of dictionaries, each containing:
+            - 'city': The city name
+            - 'state': The state code (if known)
     """
     print(f"  >> [extract_city_filter] Received query: '{query}'")
-    print(f"  >> [extract_city_filter] Received cities: {cities}")
+    print(f"  >> [extract_city_filter] Received cities with states: {cities}")
     
-    if cities:
-        # Remove duplicates while preserving order
-        found_cities = list(dict.fromkeys(cities))
-        print(f"  >> [extract_city_filter] Using cities: {found_cities}")
-        return {"City": {"$in": found_cities}}
-    else:
+    if not cities:
         print("  >> [extract_city_filter] No cities provided, returning None.")
         return None
+
+    # Remove duplicates while preserving order
+    unique_cities = []
+    seen = set()
+    for city_info in cities:
+        city_key = (city_info['city'].lower(), city_info.get('state', '').upper())
+        if city_key not in seen:
+            seen.add(city_key)
+            unique_cities.append(city_info)
+
+    print(f"  >> [extract_city_filter] Using unique cities with states: {unique_cities}")
+
+    # Build the filter conditions
+    filter_conditions = []
+    
+    for city_info in unique_cities:
+        city = city_info['city']
+        state = city_info.get('state')
+        
+        if state:
+            # If we have both city and state, create a combined condition
+            filter_conditions.append({
+                "$and": [
+                    {"City": city},
+                    {"State": state}
+                ]
+            })
+        else:
+            # If we only have city, just filter on city
+            filter_conditions.append({"City": city})
+
+    if len(filter_conditions) == 1:
+        return filter_conditions[0]
+    else:
+        return {"$or": filter_conditions}
 
 # --- Define LangChain Tools ---
 
@@ -245,7 +281,7 @@ region_tool = Tool.from_function(
 city_tool = StructuredTool.from_function(
     name="city_extractor",
     func=extract_city_filter,
-    description="Use this tool *only* if the user query explicitly mentions one or more specific US city names (e.g., 'New York', 'Los Angeles'). The LLM should identify the city names and pass them as a list. Do not use if no city is mentioned. Returns a filter condition for the 'City' metadata field.",
+    description="Use this tool *only* if the user query explicitly mentions one or more specific US city names (e.g., 'New York', 'Los Angeles'). The LLM should identify the city names and their corresponding states (if mentioned or can be inferred) and pass them as a list of dictionaries with 'city' and 'state' keys. Do not use if no city is mentioned. Returns a filter condition that matches both city and state (if provided) in the metadata.",
     args_schema=CityInput
 )
 
