@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import TypedDict, Dict, Optional, List
 from langgraph.graph import StateGraph, END
 import json
+from app.supabase_client import SupabaseManager
+from app.supabase_helpers import store_search_scores
 
 # Import filter tools
 from filter_tools import filter_tools
@@ -188,6 +190,19 @@ def handle_search_request(query_input, num_results, pre_filter_checkbox, generat
                 results_dict["search_results"] = search_docs # Store raw results
 
                 if search_docs:
+                    # Store search results and scores in Supabase
+                    search_id = store_search_scores(
+                        search_docs=search_docs,
+                        query=query_input,
+                        langsmith_run_id=results_dict["run_id"],
+                        filter_applied=generated_filter,
+                        search_type='detailed' if not generate_article_checkbox else 'summary'
+                    )
+                    if search_id:
+                        print(f"--- Successfully stored search results with ID: {search_id} ---")
+                    else:
+                        print("--- Failed to store search results in Supabase ---")
+
                     if generate_article_checkbox:
                         full_content = "\n\n".join([doc.page_content for doc in search_docs])
                         with st.spinner("Generating summary..."): 
@@ -707,7 +722,7 @@ def generate_search_filter(query: str) -> Dict:
 
 # @st.cache_data # Disabled: filter_dict (dict) is not hashable. Need to convert to hashable type (e.g., sorted tuple) if caching is re-enabled.
 def perform_search(query, num_results, filter_dict=None):
-    """Perform the vector search and return results, optionally applying filters."""
+    """Perform the vector search and return results with scores, optionally applying filters."""
     if not query.strip():
         return []
 
@@ -718,12 +733,20 @@ def perform_search(query, num_results, filter_dict=None):
     print(f"--- Performing search with filter: {chroma_filter} ---")
 
     try:
-        # Call similarity_search using the standard Langchain 'filter' argument
-        results = vectorstore.similarity_search(
+        # Call similarity_search_with_score to get both documents and scores
+        results_with_scores = vectorstore.similarity_search_with_score(
             query=query,
             k=num_results,
             filter=chroma_filter # Use the adjusted filter
         )
+        
+        # Extract documents and scores
+        results = []
+        for doc, score in results_with_scores:
+            # Add the score to the document's metadata
+            doc.metadata['similarity_score'] = score
+            results.append(doc)
+            
         return results
     except Exception as e:
         # More specific error handling might be needed depending on ChromaDB exceptions
@@ -1100,3 +1123,6 @@ with st.expander("About this app"):
 # Run the app
 # Note: No need for if __name__ == "__main__" in Streamlit
 # Streamlit apps are run with the command:  python -m streamlit run roadfood_search_app.py
+
+# Initialize Supabase client
+supabase_manager = SupabaseManager()

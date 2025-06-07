@@ -20,7 +20,7 @@ class SupabaseManager:
         try:
             # Try to get credentials from environment variables first
             supabase_url = os.environ.get("SUPABASE_URL")
-            supabase_key = os.environ.get("SUPABASE_ANON_KEY")
+            supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
             
             # If not in environment, try credentials.yml
             if not supabase_url or not supabase_key:
@@ -29,7 +29,7 @@ class SupabaseManager:
                     credentials = yaml.safe_load(open('credentials.yml'))
                     supabase_config = credentials.get('supabase-rfadvisr_result_scores', {})
                     supabase_url = supabase_config.get('url')
-                    supabase_key = supabase_config.get('anon_key')
+                    supabase_key = supabase_config.get('service_role_key')
                 except Exception as e:
                     logger.error(f"Error loading credentials.yml: {str(e)}")
                     return None
