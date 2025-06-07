@@ -27,6 +27,7 @@ image = (
         "modal>=0.53.3",
         "pydantic==2.9.2",
         "pydantic-core>=2.23.4",
+        "supabase>=2.0.0",
     )
     .add_local_file(
         streamlit_script_local_path,
@@ -58,7 +59,8 @@ LOCAL_DATA_DIR = Path("data")
     ],
     secrets=[
         modal.Secret.from_name("openai-api-key"),
-        modal.Secret.from_name("langsmith-api-key")
+        modal.Secret.from_name("langsmith-api-key"),
+        modal.Secret.from_name("supabase-rfadvisr_result_scores-key")
     ],
     timeout=600,
     allow_concurrent_inputs=100,
@@ -74,6 +76,12 @@ def run():
         print("--- LangSmith environment variables set for Modal deployment ---")
     else:
         print("--- LangSmith API key not found in Modal environment, tracing disabled ---")
+    
+    # Set up Supabase environment variables
+    if all(key in os.environ for key in ["SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_KEY"]):
+        print("--- Supabase environment variables set for Modal deployment ---")
+    else:
+        print("--- Supabase credentials not found in Modal environment ---")
     
     # Run Streamlit as a subprocess
     target = shlex.quote(streamlit_script_remote_path)
