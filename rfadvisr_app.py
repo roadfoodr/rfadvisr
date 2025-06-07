@@ -650,6 +650,7 @@ def format_filter_node(state: FilterGenerationState) -> Dict:
 
 # --- End Filter Generation Graph Nodes ---
 
+@st.cache_resource
 def build_filter_graph():
     """Builds the LangGraph for filter generation."""
     graph = StateGraph(FilterGenerationState)
@@ -1123,6 +1124,3 @@ with st.expander("About this app"):
 # Run the app
 # Note: No need for if __name__ == "__main__" in Streamlit
 # Streamlit apps are run with the command:  python -m streamlit run roadfood_search_app.py
-
-# Initialize Supabase client
-supabase_manager = SupabaseManager()
