@@ -99,6 +99,7 @@ class SupabaseManager:
                     'region': result.get('region'),
                     'honor_roll': result.get('honor_roll', 'n'),
                     'recommend': result.get('recommend', 'n'),
+                    'url': result.get('url', ''),
                     'longitude': result.get('longitude'),
                     'latitude': result.get('latitude'),
                     'sig_item': result.get('sig_item'),

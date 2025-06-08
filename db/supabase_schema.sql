@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS result_scores (
     longitude FLOAT,
     latitude FLOAT,
     sig_item TEXT,
+    url TEXT,
     similarity_score FLOAT NOT NULL CHECK (similarity_score >= 0),
     rank INTEGER NOT NULL CHECK (rank > 0),
     metadata JSONB,
@@ -64,6 +65,7 @@ CREATE INDEX IF NOT EXISTS idx_result_scores_honor_roll ON result_scores(honor_r
 CREATE INDEX IF NOT EXISTS idx_result_scores_recommend ON result_scores(recommend);
 CREATE INDEX IF NOT EXISTS idx_result_scores_region ON result_scores(region);
 CREATE INDEX IF NOT EXISTS idx_result_scores_relevant ON result_scores(relevant);
+CREATE INDEX IF NOT EXISTS idx_result_scores_url ON result_scores(url);
 
 -- Create a view for easy querying of search results with scores
 CREATE OR REPLACE VIEW search_results_with_scores

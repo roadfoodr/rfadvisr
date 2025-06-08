@@ -45,6 +45,7 @@ def store_search_scores(
                 'longitude': doc.metadata.get('long'),
                 'latitude': doc.metadata.get('lat'),
                 'sig_item': doc.metadata.get('sig_item', ''),
+                'url': doc.metadata.get('URL', ''),
                 'similarity_score': doc.metadata.get('similarity_score'),
                 'metadata': doc.metadata
             }
