@@ -10,32 +10,43 @@ streamlit_script_local_path = Path("rfadvisr_app.py")
 streamlit_script_remote_path = "/root/rfadvisr_app.py"
 filter_tools_local_path = Path("filter_tools.py")
 filter_tools_remote_path = "/root/filter_tools.py"
+requirements_local_path = Path("requirements.txt")
+requirements_remote_path = "/root/requirements.txt"
+
+# Read requirements from requirements.txt
+with open(requirements_local_path) as f:
+    requirements = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 # Create an image with the necessary dependencies
 image = (
     modal.Image.debian_slim(python_version="3.10")
-    .pip_install(
-        "streamlit>=1.45.0",
-        "langchain>=0.3.24",
-        "langchain-openai>=0.3.14",
-        "langchain-core>=0.3.56",
-        "langchain-chroma>=0.2.2",
-        "langgraph>=0.4.0",
-        "openai>=1.3.0",
-        "pyyaml>=6.0",
-        "chromadb>=0.4.18",
-        "modal>=0.53.3",
-        "pydantic==2.9.2",
-        "pydantic-core>=2.23.4",
-        "supabase>=2.0.0",
+    .pip_install(*requirements)
+    .add_local_file(
+        requirements_local_path,
+        requirements_remote_path,
+        copy=True
     )
     .add_local_file(
         streamlit_script_local_path,
         streamlit_script_remote_path,
+        copy=True
     )
     .add_local_file(
         filter_tools_local_path,
         filter_tools_remote_path,
+        copy=True
+    )
+    .add_local_dir(
+        Path("prompts"),
+        remote_path="/root/prompts",
+    )
+    .add_local_dir(
+        Path("data"),
+        remote_path="/root/data",
+    )
+    .add_local_dir(
+        Path("app"),
+        remote_path="/root/app",
     )
 )
 
@@ -48,15 +59,8 @@ if not streamlit_script_local_path.exists():
         "rfadvisr_app.py not found! Make sure the Streamlit app script is in the same directory."
     )
 
-# Mount the local directories that contain necessary files
-LOCAL_PROMPTS_DIR = Path("prompts")
-LOCAL_DATA_DIR = Path("data")
 
 @app.function(
-    mounts=[
-        modal.Mount.from_local_dir(LOCAL_PROMPTS_DIR, remote_path="/root/prompts"),
-        modal.Mount.from_local_dir(LOCAL_DATA_DIR, remote_path="/root/data"),
-    ],
     secrets=[
         modal.Secret.from_name("openai-api-key"),
         modal.Secret.from_name("langsmith-api-key"),
