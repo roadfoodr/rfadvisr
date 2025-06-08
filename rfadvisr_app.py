@@ -17,7 +17,7 @@ from app.supabase_client import SupabaseManager
 from app.supabase_helpers import store_search_scores
 
 # Import filter tools
-from filter_tools import filter_tools
+from app.filter_tools import filter_tools
 
 # ---> ADDED LANGSMITH IMPORTS <---
 from langsmith import Client

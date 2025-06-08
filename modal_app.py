@@ -8,8 +8,6 @@ import modal
 # Path to the Streamlit app script
 streamlit_script_local_path = Path("rfadvisr_app.py")
 streamlit_script_remote_path = "/root/rfadvisr_app.py"
-filter_tools_local_path = Path("filter_tools.py")
-filter_tools_remote_path = "/root/filter_tools.py"
 requirements_local_path = Path("requirements.txt")
 requirements_remote_path = "/root/requirements.txt"
 
@@ -29,11 +27,6 @@ image = (
     .add_local_file(
         streamlit_script_local_path,
         streamlit_script_remote_path,
-        copy=True
-    )
-    .add_local_file(
-        filter_tools_local_path,
-        filter_tools_remote_path,
         copy=True
     )
     .add_local_dir(
