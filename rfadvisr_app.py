@@ -229,8 +229,9 @@ def handle_search_request(query_input, num_results, pre_filter_checkbox, generat
 # ---> END HELPER/PROCESSING FUNCTIONS <--- 
 
 MODEL_EMBEDDING = 'text-embedding-ada-002'
-LLM_MODEL = 'gpt-3.5-turbo'
+# LLM_MODEL = 'gpt-3.5-turbo'
 # LLM_MODEL = 'gpt-4o-mini'
+LLM_MODEL = 'gpt-4.1-mini'
 
 # Initialize embedding function
 @st.cache_resource
