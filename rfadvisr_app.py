@@ -725,7 +725,7 @@ def generate_search_filter(query: str) -> Dict:
 # @st.cache_data # Disabled: filter_dict (dict) is not hashable. Need to convert to hashable type (e.g., sorted tuple) if caching is re-enabled.
 def perform_search(query, num_results, filter_dict=None):
     """Perform the vector search and return results with scores, optionally applying filters."""
-    if not query.strip():
+    if not query:
         return []
 
     # Determine the actual filter to pass to ChromaDB
@@ -942,12 +942,15 @@ if search_submitted:
     st.session_state.last_current_run_id = None
     st.session_state.last_generated_filter = None
 
-    if not query_input.strip():
+    # Clean the query input once, right at the beginning
+    clean_query = query_input.strip()
+
+    if not clean_query:
         st.warning("Please enter a search query.")
     else:
         # Execute the search logic
         search_outcome = handle_search_request(
-            query_input=query_input,
+            query_input=clean_query, # Use the cleaned query
             num_results=num_results,
             pre_filter_checkbox=pre_filter_checkbox,
             generate_article_checkbox=generate_article_checkbox,
@@ -969,11 +972,11 @@ if search_submitted:
         elif search_outcome:
             # Store error message if search failed
             st.session_state.last_error_message = search_outcome.get("error_message")
-            st.session_state.last_query = query_input # Store query even on error for context
+            st.session_state.last_query = clean_query # Store cleaned query even on error for context
             st.session_state.last_generated_filter = search_outcome.get("generated_filter")
         else:
              st.session_state.last_error_message = "An unexpected error occurred in handle_search_request."
-             st.session_state.last_query = query_input
+             st.session_state.last_query = clean_query # Store cleaned query even on error
         
         # Trigger immediate rerun to display results from session state
         st.rerun()
